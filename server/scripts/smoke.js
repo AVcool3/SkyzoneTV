@@ -96,13 +96,17 @@ const run = async () => {
     return r.json();
   };
   const csvData = await uploadCsv(
-    'date,time,tv,name,duration\n' +
-    '2099-01-01,10:00,Smoke Room 1,CsvKid,5\n' +
-    'baddate,10:00,Smoke Room 1,X,5\n' +          // unparseable date
-    '2099-13-05,10:00,Smoke Room 1,Y,5\n' +       // impossible month (must not roll over)
-    '2099-01-01,10:00,Smoke Room 13,Z,5\n');      // TV typo (must flag, not guess Room 1)
-  check('csv imports valid rows', csvData.imported === 1);
-  check('csv flags bad date, impossible date, and unknown TV', csvData.errors.length === 3);
+    'date,time,tv,name,duration,theme\n' +
+    '2099-01-01,10:00,Smoke Room 1,CsvKid,5,ninja\n' +
+    'baddate,10:00,Smoke Room 1,X,5,\n' +           // unparseable date
+    '2099-13-05,10:00,Smoke Room 1,Y,5,\n' +        // impossible month (must not roll over)
+    '2099-01-01,10:00,Smoke Room 13,Z,5,\n' +       // TV typo (must flag, not guess Room 1)
+    '2099-01-01,11:00,Smoke Room 1,ThemeKid,5,dinosaur\n'); // unknown theme -> flagged, falls back
+  check('csv imports valid rows', csvData.imported === 2);
+  check('csv flags bad date, impossible date, unknown TV, unknown theme', csvData.errors.length === 4);
+  state = (await api(token, 'GET', '/api/state')).data;
+  check('csv theme stored', state.events.find(e => e.name === 'CsvKid')?.theme === 'ninja');
+  check('unknown theme falls back to party', state.events.find(e => e.name === 'ThemeKid')?.theme === 'party');
 
   // A failed/garbage upload must not wipe the schedule…
   const garbage = await uploadCsv('this,is,not\nan,events,file\n');

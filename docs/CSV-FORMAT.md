@@ -4,11 +4,11 @@ Upload in the dashboard: **Events → Upload events CSV**. A sample file is
 downloadable from that tab.
 
 ```csv
-date,time,tv,name,message,duration,media
-2026-08-13,10:30,Room 1,Aiden,,5,
-2026-08-13,11:00,Room 2,Maya,Happy 8th Birthday Maya!,5,Birthday Loop
-2026-08-13,1:30 PM,Room 1,Liam,,5,
-2026-08-13,15:00,Room 3,Sofia,,10,
+date,time,tv,name,message,duration,theme,media
+2026-08-13,10:30,Room 1,Aiden,,5,superhero,
+2026-08-13,11:00,Room 2,Maya,Happy 8th Birthday Maya!,5,,Licensed Party Video
+2026-08-13,1:30 PM,Room 1,Liam,,5,ninja,
+2026-08-13,15:00,Room 3,Sofia,,10,princess,
 ```
 
 | Column | Required | Format | Notes |
@@ -19,7 +19,8 @@ date,time,tv,name,message,duration,media
 | `name` | yes | text | Shown on screen: "Happy Birthday, *Name*!" |
 | `message` | no | text | Replaces the default headline entirely (e.g. "Happy 8th Birthday Maya!"). |
 | `duration` | no | minutes | How long the takeover lasts. Default **5**. |
-| `media` | no | media label | A media label from your library to play as the background. Blank = the library's **Set as birthday** video, or the built-in animated screen if none is set. |
+| `theme` | no | `party`, `superhero`, `princess`, `space`, `ninja` | Which built-in animated birthday screen to use. Blank = `party`. Synonyms work (`hero`, `galaxy`, `royal`, …); unknown values are flagged and fall back to `party`. |
+| `media` | no | media label | A media label from your library to play full-screen as the background (e.g. licensed character content you have rights to). Takes priority over `theme`. Blank = the library's **Set as birthday** video if one is set, otherwise the theme's animated screen. |
 
 Header aliases are accepted (`room` for `tv`, `start` for `time`,
 `minutes` for `duration`, `video` for `media`). Column order doesn't matter.

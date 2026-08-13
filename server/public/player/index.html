@@ -39,7 +39,14 @@
   #off.visible { display: block; }
 
   /* Birthday / event takeover */
-  #override { position: absolute; inset: 0; display: none; overflow: hidden; }
+  #override {
+    position: absolute; inset: 0; display: none; overflow: hidden;
+    /* headline colors per theme */
+    --hl-fill: #ffd93b; --hl-stroke: #d62828; --hl-glow: rgba(255,217,59,0.5);
+  }
+  #override[data-theme="princess"] { --hl-fill: #ffe3f5; --hl-stroke: #c2255c; --hl-glow: rgba(255,182,225,0.6); }
+  #override[data-theme="space"]    { --hl-fill: #dffbff; --hl-stroke: #1e3799; --hl-glow: rgba(72,219,251,0.55); }
+  #override[data-theme="ninja"]    { --hl-fill: #ffffff; --hl-stroke: #e84118; --hl-glow: rgba(232,65,24,0.5); }
   #override.visible { display: block; }
   #override .bg {
     position: absolute; inset: 0;
@@ -63,9 +70,9 @@
   }
   #override .headline {
     font-family: 'Arial Black', Impact, 'Segoe UI', sans-serif;
-    font-size: 9.5vmin; font-weight: 900; color: #ffd93b;
-    -webkit-text-stroke: 0.28vmin #d62828;
-    text-shadow: 0.8vmin 0.9vmin 0 #101010, 0 0 6vmin rgba(255,217,59,0.5);
+    font-size: 9.5vmin; font-weight: 900; color: var(--hl-fill);
+    -webkit-text-stroke: 0.28vmin var(--hl-stroke);
+    text-shadow: 0.8vmin 0.9vmin 0 #101010, 0 0 6vmin var(--hl-glow);
     transform: rotate(-2deg);
     animation: pulse 2.2s ease-in-out infinite;
     line-height: 1.12; overflow-wrap: anywhere; letter-spacing: 0.02em;

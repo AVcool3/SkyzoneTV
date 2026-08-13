@@ -193,7 +193,8 @@
       card.querySelector('[data-act="bday"]').addEventListener('click', () => {
         const name = prompt('Name to show (1-minute test):', 'Aiden');
         if (!name) return;
-        api(`/api/tvs/${tv.id}/test-birthday`, { method: 'POST', body: JSON.stringify({ name, durationMin: 1 }) })
+        const theme = prompt('Theme: party / superhero / princess / space / ninja', 'party') || 'party';
+        api(`/api/tvs/${tv.id}/test-birthday`, { method: 'POST', body: JSON.stringify({ name, theme, durationMin: 1 }) })
           .then(() => toast('Birthday test running')).catch(e => toast(e.message, true));
       });
 
@@ -270,9 +271,10 @@
     const rows = $('eventRows');
     rows.innerHTML = '';
     if (state.events.length === 0) {
-      rows.innerHTML = '<tr><td colspan="8" class="hint">No events. Upload the day\'s CSV or add one manually.</td></tr>';
+      rows.innerHTML = '<tr><td colspan="9" class="hint">No events. Upload the day\'s CSV or add one manually.</td></tr>';
       return;
     }
+    const themeIcons = { party: '🎉', superhero: '🦸', princess: '👑', space: '🚀', ninja: '🥷' };
     for (const ev of state.events) {
       const tr = document.createElement('tr');
       tr.innerHTML = `
@@ -281,7 +283,8 @@
         <td><strong>${esc(ev.name)}</strong></td>
         <td>${esc(ev.message || `Happy Birthday, ${ev.name}!`)}</td>
         <td>${ev.durationMin} min</td>
-        <td>${esc(ev.mediaLabel || 'default')}</td>
+        <td>${themeIcons[ev.theme] || '🎉'} ${esc(ev.theme || 'party')}</td>
+        <td>${esc(ev.mediaLabel || '—')}</td>
         <td><span class="status-tag ${ev.status}">${ev.status.toUpperCase()}</span></td>
         <td style="white-space:nowrap">
           ${ev.status === 'scheduled' ? '<button class="btn tiny" data-act="now">Start now</button>' : ''}
@@ -430,8 +433,9 @@
     const tvSel = $('evTv');
     tvSel.innerHTML = state.tvs.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('');
     const mediaSel = $('evMedia');
-    mediaSel.innerHTML = '<option value="">Default birthday screen</option>' +
+    mediaSel.innerHTML = '<option value="">Use the theme above</option>' +
       state.media.map(m => `<option value="${esc(m.label)}">${esc(m.label)}</option>`).join('');
+    $('evTheme').value = 'party';
     const now = new Date(Date.now() + 10 * 60000);
     now.setSeconds(0, 0);
     $('evStart').value = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
@@ -452,6 +456,7 @@
           message: $('evMessage').value || null,
           startsAt: new Date($('evStart').value).toISOString(),
           durationMin: parseFloat($('evDuration').value) || 5,
+          theme: $('evTheme').value,
           mediaLabel: $('evMedia').value || null
         })
       });

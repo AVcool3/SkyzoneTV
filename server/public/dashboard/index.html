@@ -74,7 +74,7 @@
     <div id="csvReport" class="csv-report hidden"></div>
     <div class="table-wrap">
       <table id="eventTable">
-        <thead><tr><th>Starts</th><th>TV</th><th>Name</th><th>Message</th><th>Length</th><th>Media</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>Starts</th><th>TV</th><th>Name</th><th>Message</th><th>Length</th><th>Theme</th><th>Media</th><th>Status</th><th></th></tr></thead>
         <tbody id="eventRows"></tbody>
       </table>
     </div>
@@ -103,7 +103,14 @@
     <label>Custom message (optional) <input id="evMessage" placeholder="Happy Birthday, Aiden!"></label>
     <label>Date &amp; time <input id="evStart" type="datetime-local"></label>
     <label>Duration (minutes) <input id="evDuration" type="number" value="5" min="1" max="240"></label>
-    <label>Background video (optional) <select id="evMedia"><option value="">Default birthday screen</option></select></label>
+    <label>Theme <select id="evTheme">
+      <option value="party">🎉 Party (default)</option>
+      <option value="superhero">🦸 Superhero</option>
+      <option value="princess">👑 Princess</option>
+      <option value="space">🚀 Space</option>
+      <option value="ninja">🥷 Ninja</option>
+    </select></label>
+    <label>Background video (optional — overrides the theme) <select id="evMedia"><option value="">Use the theme above</option></select></label>
     <div class="modal-actions">
       <button id="eventCancel" class="btn ghost">Cancel</button>
       <button id="eventSave" class="btn primary">Add</button>

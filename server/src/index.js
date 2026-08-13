@@ -8,7 +8,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { Store } from './store.js';
-import { parseEventsCsv, matchMedia } from './csv.js';
+import { parseEventsCsv, matchMedia, normalizeTheme } from './csv.js';
 import { startScheduler } from './scheduler.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -103,7 +103,8 @@ function playerState(tv) {
       name: tv.override.name,
       message: tv.override.message || `Happy Birthday, ${tv.override.name}!`,
       mediaUrl: m ? `/media/${m.id}${m.ext}` : null,
-      endsAt: tv.override.endsAt
+      endsAt: tv.override.endsAt,
+      theme: tv.override.theme || 'party'
     };
   }
   return { type: 'state', tv: { id: tv.id, name: tv.name }, power: tv.power, playlist, override };
@@ -231,7 +232,7 @@ app.post('/api/tvs/:id/power', requireAuth, (req, res) => {
 app.post('/api/tvs/:id/test-birthday', requireAuth, (req, res) => {
   const tv = store.tv(req.params.id);
   if (!tv) return res.status(404).json({ error: 'No such TV' });
-  const { name, durationMin } = req.body || {};
+  const { name, durationMin, theme } = req.body || {};
   const dur = Math.min(Math.max(parseFloat(durationMin) || 1, 0.2), 240);
   tv.override = {
     eventId: null,
@@ -239,6 +240,7 @@ app.post('/api/tvs/:id/test-birthday', requireAuth, (req, res) => {
     message: null,
     mediaId: store.data.settings.birthdayMediaId || null,
     endsAt: new Date(Date.now() + dur * 60_000).toISOString(),
+    theme: normalizeTheme(theme) || 'party',
     restorePowerOff: tv.power === 'off'
   };
   tv.power = 'on';
@@ -399,7 +401,7 @@ app.post('/api/events/csv', requireAuth, (req, res) => {
 });
 
 app.post('/api/events', requireAuth, (req, res) => {
-  const { tvId, name, message, startsAt, durationMin, mediaLabel } = req.body || {};
+  const { tvId, name, message, startsAt, durationMin, mediaLabel, theme } = req.body || {};
   const tv = store.tv(tvId);
   if (!tv) return res.status(400).json({ error: 'Pick a TV' });
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'Name is required' });
@@ -418,6 +420,7 @@ app.post('/api/events', requireAuth, (req, res) => {
     startsAt: new Date(start).toISOString(),
     durationMin: Math.min(Math.max(parseFloat(durationMin) || 5, 0.2), 240),
     mediaId,
+    theme: normalizeTheme(theme) || 'party',
     status: 'scheduled',
     source: 'manual'
   };

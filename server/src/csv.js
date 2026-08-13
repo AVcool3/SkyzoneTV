@@ -92,6 +92,22 @@ export function matchMedia(media, value) {
   return media.find(m => normalizeLabel(m.label) === v) || null;
 }
 
+// Built-in birthday screen themes. Blank/absent -> 'party'; common synonyms
+// are accepted; anything else returns null so the import can flag it.
+export const THEMES = ['party', 'superhero', 'princess', 'space', 'ninja'];
+const THEME_SYNONYMS = {
+  party: 'party', kidstv: 'party', kids: 'party', celebration: 'party', birthday: 'party',
+  superhero: 'superhero', hero: 'superhero', heroes: 'superhero', comic: 'superhero',
+  princess: 'princess', prince: 'princess', royal: 'princess', castle: 'princess',
+  space: 'space', galaxy: 'space', rocket: 'space', astronaut: 'space', alien: 'space',
+  ninja: 'ninja', karate: 'ninja', dojo: 'ninja', warrior: 'ninja'
+};
+export function normalizeTheme(value) {
+  const v = normalizeLabel(value);
+  if (!v) return 'party';
+  return THEME_SYNONYMS[v] || null;
+}
+
 // Returns { events: [...], errors: [{line, error}] }
 export function parseEventsCsv(text, tvs, media) {
   const rows = parseCsv(text);
@@ -108,7 +124,7 @@ export function parseEventsCsv(text, tvs, media) {
   const iDate = col('date'), iTime = col('time', 'start', 'starttime'),
     iTv = col('tv', 'room', 'tvname', 'screen'), iName = col('name', 'birthdayname', 'kid', 'guest'),
     iMsg = col('message', 'headline'), iDur = col('duration', 'durationminutes', 'minutes'),
-    iMedia = col('media', 'video', 'medialabel');
+    iMedia = col('media', 'video', 'medialabel'), iTheme = col('theme', 'style');
 
   const errors = [];
   if (iDate === -1 || iTime === -1 || iTv === -1 || iName === -1) {
@@ -145,6 +161,12 @@ export function parseEventsCsv(text, tvs, media) {
     if (!Number.isFinite(durationMin) || durationMin <= 0) durationMin = 5;
     durationMin = Math.min(durationMin, 240);
 
+    let theme = normalizeTheme(get(iTheme));
+    if (theme === null) {
+      errors.push({ line, error: `Unknown theme "${get(iTheme)}" — using "party" (options: ${THEMES.join(', ')})` });
+      theme = 'party';
+    }
+
     const startsAt = new Date(date.y, date.mo - 1, date.d, time.h, time.min, 0, 0);
     events.push({
       tvId: tv.id,
@@ -152,7 +174,8 @@ export function parseEventsCsv(text, tvs, media) {
       message: get(iMsg) || null,
       startsAt: startsAt.toISOString(),
       durationMin,
-      mediaId
+      mediaId,
+      theme
     });
   }
   return { events, errors };

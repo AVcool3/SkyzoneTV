@@ -30,6 +30,7 @@ export function startScheduler(store, { onTvChanged, onStateChanged }) {
             message: ev.message || null,
             mediaId: ev.mediaId || store.data.settings.birthdayMediaId || null,
             endsAt: new Date(endMs).toISOString(),
+            theme: ev.theme || 'party',
             // A blanked screen wakes for its scheduled party and re-blanks
             // after — a birthday must never play invisibly onto a black TV.
             restorePowerOff: tv.power === 'off'

@@ -259,6 +259,7 @@
 
   function showOverride(o) {
     setHeadline(o.message || `Happy Birthday, ${o.name}!`);
+    overrideEl.dataset.theme = o.theme || 'party';
     let videoBehind = false;
     if (o.mediaUrl) {
       overrideEl.classList.add('has-video');
@@ -267,7 +268,7 @@
       // background rather than showing black behind the hero.
       overrideVideo.onerror = () => {
         overrideEl.classList.remove('has-video');
-        BirthdayScene.start(canvas, o.name, false);
+        BirthdayScene.start(canvas, o.theme || 'party', false);
       };
       const abs = new URL(o.mediaUrl, location.href).href;
       if (overrideVideo.src !== abs) {
@@ -281,7 +282,7 @@
     }
     stopVideos();
     show('override');
-    BirthdayScene.start(canvas, o.name, videoBehind);
+    BirthdayScene.start(canvas, o.theme || 'party', videoBehind);
 
     // Local fallback: if the server connection is down when the event should
     // end, clear it ourselves so a TV never gets stuck on a birthday screen.
