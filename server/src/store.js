@@ -8,7 +8,8 @@ const DEFAULTS = () => ({
   settings: {
     birthdayMediaId: null,
     dayStarted: true,
-    tokens: []  // recent dashboard auth tokens (survive restarts)
+    adminPassword: null, // generated on first boot unless ADMIN_PASSWORD env is set
+    tokens: []           // recent dashboard auth tokens (survive restarts)
   }
 });
 
@@ -33,12 +34,19 @@ export class Store {
   }
 
   // Debounced save; multiple mutations in one tick produce a single write.
-  save() {
+  // A failed write (full disk, permissions) must not crash the process from
+  // inside the timer — log it and retry; the data stays live in memory.
+  save(delay = 150) {
     if (this._saveTimer) return;
     this._saveTimer = setTimeout(() => {
       this._saveTimer = null;
-      this.saveNow();
-    }, 150);
+      try {
+        this.saveNow();
+      } catch (err) {
+        console.error(`Could not write db.json (${err.message}) — retrying in 15s`);
+        this.save(15000);
+      }
+    }, delay);
   }
 
   saveNow() {

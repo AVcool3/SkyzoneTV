@@ -346,36 +346,50 @@
   });
 
   // ---------- uploads ----------
+  // One shared queue: files dropped while an upload is running join it instead
+  // of racing a second chain over the same progress bar.
+  const uploadQueue = [];
+  let uploadActive = false, uploadDone = 0, uploadFailed = [];
+
   function uploadFiles(files) {
-    const queue = [...files].filter(f => /\.(mp4|m4v|webm|mov)$/i.test(f.name));
-    if (queue.length === 0) { toast('Only .mp4, .m4v, .webm or .mov files', true); return; }
+    const accepted = [...files].filter(f => /\.(mp4|m4v|webm|mov)$/i.test(f.name));
+    if (accepted.length === 0) { toast('Only .mp4, .m4v, .webm or .mov files', true); return; }
+    uploadQueue.push(...accepted);
+    if (!uploadActive) { uploadActive = true; uploadDone = 0; uploadFailed = []; uploadNext(); }
+  }
+
+  function uploadNext() {
     const progressBox = $('uploadProgress');
-    let i = 0;
-    const uploadOne = () => {
-      if (i >= queue.length) { progressBox.classList.add('hidden'); toast('Upload complete'); return; }
-      const file = queue[i];
-      progressBox.classList.remove('hidden');
-      $('uploadLabel').textContent = `${file.name} (${i + 1}/${queue.length})`;
-      const form = new FormData();
-      form.append('file', file);
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', '/api/media');
-      xhr.setRequestHeader('Authorization', 'Bearer ' + token);
-      xhr.upload.onprogress = e => {
-        if (e.lengthComputable) $('uploadBar').style.width = (e.loaded / e.total * 100).toFixed(1) + '%';
-      };
-      xhr.onload = () => {
-        if (xhr.status !== 200) {
-          let msg = 'Upload failed';
-          try { msg = JSON.parse(xhr.responseText).error || msg; } catch {}
-          toast(`${file.name}: ${msg}`, true);
-        }
-        i++; $('uploadBar').style.width = '0%'; uploadOne();
-      };
-      xhr.onerror = () => { toast(`${file.name}: network error`, true); i++; uploadOne(); };
-      xhr.send(form);
+    const file = uploadQueue.shift();
+    if (!file) {
+      uploadActive = false;
+      progressBox.classList.add('hidden');
+      if (uploadFailed.length === 0) toast(`Uploaded ${uploadDone} file${uploadDone === 1 ? '' : 's'}`);
+      else toast(`Uploaded ${uploadDone}, FAILED ${uploadFailed.length}: ${uploadFailed.join('; ')}`, true);
+      return;
+    }
+    progressBox.classList.remove('hidden');
+    $('uploadLabel').textContent = `${file.name} (${uploadQueue.length} more queued)`;
+    const form = new FormData();
+    form.append('file', file);
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/media');
+    xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+    xhr.upload.onprogress = e => {
+      if (e.lengthComputable) $('uploadBar').style.width = (e.loaded / e.total * 100).toFixed(1) + '%';
     };
-    uploadOne();
+    xhr.onload = () => {
+      if (xhr.status === 200) uploadDone++;
+      else {
+        let msg = 'upload failed';
+        try { msg = JSON.parse(xhr.responseText).error || msg; } catch {}
+        uploadFailed.push(`${file.name} (${msg})`);
+      }
+      $('uploadBar').style.width = '0%';
+      uploadNext();
+    };
+    xhr.onerror = () => { uploadFailed.push(`${file.name} (network error)`); uploadNext(); };
+    xhr.send(form);
   }
 
   $('mediaFile').addEventListener('change', e => { uploadFiles(e.target.files); e.target.value = ''; });
@@ -402,9 +416,12 @@
       const res = await api('/api/events/csv', { method: 'POST', body: form });
       const box = $('csvReport');
       box.classList.remove('hidden');
-      box.innerHTML = `<span class="ok">Imported ${res.imported} event${res.imported === 1 ? '' : 's'}.</span>` +
+      const head = res.imported > 0
+        ? `<span class="ok">Imported ${res.imported} event${res.imported === 1 ? '' : 's'}.</span>`
+        : '<span class="warn">No events imported — the existing schedule was left untouched.</span>';
+      box.innerHTML = head +
         (res.errors.length ? '<br>' + res.errors.map(er => `<span class="warn">Line ${er.line}: ${esc(er.error)}</span>`).join('<br>') : '');
-      toast(`Imported ${res.imported} events`);
+      toast(res.imported > 0 ? `Imported ${res.imported} events` : 'No events imported', res.imported === 0);
     } catch (err) { toast(err.message, true); }
   });
 

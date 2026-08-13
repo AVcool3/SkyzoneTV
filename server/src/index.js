@@ -16,10 +16,21 @@ const ROOT = path.join(__dirname, '..');
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, 'data');
 const MEDIA_DIR = path.join(DATA_DIR, 'media');
 const PORT = parseInt(process.env.PORT || '8080', 10);
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'skyzone';
 
 fs.mkdirSync(MEDIA_DIR, { recursive: true });
 const store = new Store(path.join(DATA_DIR, 'db.json'));
+
+// Dashboard password: the ADMIN_PASSWORD env var wins; otherwise generate one
+// on first boot and keep it (no well-known default a Wi-Fi guest could try).
+// It is printed on the server console at every startup.
+let ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+if (!ADMIN_PASSWORD) {
+  if (!store.data.settings.adminPassword) {
+    store.data.settings.adminPassword = crypto.randomBytes(4).toString('hex');
+    store.saveNow();
+  }
+  ADMIN_PASSWORD = store.data.settings.adminPassword;
+}
 
 // ---------------------------------------------------------------------------
 // Auth (dashboard only; players are unauthenticated on the local network)
@@ -143,7 +154,14 @@ app.post('/api/player/register', (req, res) => {
   const { existingId } = req.body || {};
   let tv = existingId ? store.tv(existingId) : null;
   if (!tv) {
-    const n = store.data.tvs.length + 1;
+    if (store.data.tvs.length >= 50) {
+      return res.status(429).json({ error: 'TV limit reached — remove unused TVs in the dashboard' });
+    }
+    // Lowest unused number, so deleting "TV 7" and re-pairing never creates a
+    // duplicate name (CSV rows target TVs by name).
+    const names = new Set(store.data.tvs.map(t => t.name));
+    let n = 1;
+    while (names.has(`TV ${n}`)) n++;
     tv = {
       id: crypto.randomUUID(),
       name: `TV ${n}`,
@@ -220,8 +238,10 @@ app.post('/api/tvs/:id/test-birthday', requireAuth, (req, res) => {
     name: (name || 'Test').toString().slice(0, 60),
     message: null,
     mediaId: store.data.settings.birthdayMediaId || null,
-    endsAt: new Date(Date.now() + dur * 60_000).toISOString()
+    endsAt: new Date(Date.now() + dur * 60_000).toISOString(),
+    restorePowerOff: tv.power === 'off'
   };
+  tv.power = 'on';
   store.save();
   pushTv(tv.id);
   pushDashboards();
@@ -231,9 +251,12 @@ app.post('/api/tvs/:id/test-birthday', requireAuth, (req, res) => {
 app.post('/api/tvs/:id/clear-override', requireAuth, (req, res) => {
   const tv = store.tv(req.params.id);
   if (!tv) return res.status(404).json({ error: 'No such TV' });
-  if (tv.override && tv.override.eventId) {
-    const ev = store.event(tv.override.eventId);
-    if (ev && ev.status === 'active') ev.status = 'done';
+  if (tv.override) {
+    if (tv.override.eventId) {
+      const ev = store.event(tv.override.eventId);
+      if (ev && ev.status === 'active') ev.status = 'done';
+    }
+    if (tv.override.restorePowerOff) tv.power = 'off';
   }
   tv.override = null;
   store.save();
@@ -346,8 +369,20 @@ app.post('/api/events/csv', requireAuth, (req, res) => {
     if (err) return res.status(400).json({ error: err.message });
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
     const { events, errors } = parseEventsCsv(req.file.buffer.toString('utf8'), store.data.tvs, store.data.media);
-    // Replace all still-scheduled events; active/done ones are history and stay.
-    store.data.events = store.data.events.filter(e => e.status !== 'scheduled');
+    if (events.length === 0) {
+      // Nothing valid in the file (wrong file, bad headers): never wipe the
+      // existing schedule on a failed import.
+      return res.json({
+        ok: true, imported: 0, kept: true,
+        errors: errors.length ? errors : [{ line: 0, error: 'No valid rows found' }]
+      });
+    }
+    // Replace still-scheduled events, but only for the dates present in this
+    // file — pre-loading tomorrow's CSV must not delete tonight's parties.
+    // Active/done events are history and always stay.
+    const newDates = new Set(events.map(e => new Date(e.startsAt).toDateString()));
+    store.data.events = store.data.events.filter(e =>
+      e.status !== 'scheduled' || !newDates.has(new Date(e.startsAt).toDateString()));
     for (const e of events) {
       store.data.events.push({
         id: crypto.randomUUID(),
@@ -462,7 +497,13 @@ app.use((err, req, res, next) => {
 // WebSockets
 // ---------------------------------------------------------------------------
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: '/ws' });
+// A 3GB video from a phone on venue Wi-Fi takes far longer than Node's
+// default 5-minute whole-request deadline — disable it (uploads are LAN-only
+// and multer enforces the size limit).
+server.requestTimeout = 0;
+// 64KB is far beyond any legitimate player/dashboard message; the default
+// (100MB) would let any LAN device force huge disk writes and broadcasts.
+const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 64 * 1024 });
 
 wss.on('connection', ws => {
   ws.isAlive = true;
@@ -492,8 +533,9 @@ wss.on('connection', ws => {
       const tv = store.tv(ws.tvId);
       if (!tv) return;
       tv.lastSeen = new Date().toISOString();
-      const changed = tv.nowPlaying !== (msg.nowPlaying || null);
-      tv.nowPlaying = msg.nowPlaying || null;
+      const nowPlaying = typeof msg.nowPlaying === 'string' ? msg.nowPlaying.slice(0, 120) : null;
+      const changed = tv.nowPlaying !== nowPlaying;
+      tv.nowPlaying = nowPlaying;
       store.save();
       // Only re-broadcast when something visible changed — heartbeats alone
       // shouldn't cause 12 TVs × every 10s of dashboard re-renders.
@@ -543,10 +585,9 @@ server.listen(PORT, () => {
   for (const a of lanAddresses()) {
     console.log(`  On your network: http://${a}:${PORT}/dashboard/  (players: http://${a}:${PORT}/player/)`);
   }
-  if (ADMIN_PASSWORD === 'skyzone') {
-    console.log('  Dashboard password: "skyzone"  (change it: set the ADMIN_PASSWORD environment variable)');
-  }
+  console.log(`  Dashboard password: ${ADMIN_PASSWORD}` +
+    (process.env.ADMIN_PASSWORD ? '' : '  (auto-generated; set the ADMIN_PASSWORD environment variable to choose your own)'));
 });
 
-process.on('SIGINT', () => { store.saveNow(); process.exit(0); });
-process.on('SIGTERM', () => { store.saveNow(); process.exit(0); });
+process.on('SIGINT', () => { try { store.saveNow(); } catch {} process.exit(0); });
+process.on('SIGTERM', () => { try { store.saveNow(); } catch {} process.exit(0); });

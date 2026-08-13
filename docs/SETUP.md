@@ -50,15 +50,19 @@ On the mini PC (Windows or Linux both work):
    ```bash
    cd SkyzoneTV/server
    npm install
-   set ADMIN_PASSWORD=YourStrongPassword   # Windows (use $env: on PowerShell)
-   # export ADMIN_PASSWORD=YourStrongPassword   # Linux/Mac
    npm start
    ```
-4. The console prints the addresses that matter — write them down:
+4. The console prints the addresses and the dashboard password — write them
+   down:
    ```
    Dashboard: http://192.168.1.50:8080/dashboard/
    Players:   http://192.168.1.50:8080/player/
+   Dashboard password: 3f9c21ab  (auto-generated)
    ```
+   A random password is generated on first start and kept from then on. To
+   pick your own instead, set the `ADMIN_PASSWORD` environment variable before
+   starting (`set ADMIN_PASSWORD=...` on Windows, `export ADMIN_PASSWORD=...`
+   on Linux/Mac).
    (Your IP will differ. Give the mini PC a **static IP / DHCP reservation** in
    your router so this address never changes — this is important, the TVs
    remember it.)
@@ -172,8 +176,9 @@ one-off events by hand (**+ Add event**) or fire one early (**Start now**).
 
 ## 6. Security notes
 
-- Change the dashboard password (`ADMIN_PASSWORD` environment variable) before
-  real use.
+- The dashboard password is auto-generated on first start (no well-known
+  default). Set the `ADMIN_PASSWORD` environment variable if you want to
+  choose your own.
 - Everything runs on your local network only. The player pages on the TVs are
   unauthenticated (they only *receive* media); the dashboard (anything that
   *changes* things) requires the password. If guests use the same Wi-Fi,

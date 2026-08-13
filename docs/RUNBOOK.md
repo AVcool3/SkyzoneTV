@@ -27,7 +27,9 @@ Nothing — it runs itself:
 - Party running late? Open **Events** and hit **Start now** when they're ready,
   or **🎂 Test** on the TV card for an ad-hoc birthday screen.
 - Need a screen dark (private event, maintenance)? TV card → **Screen off**.
-  Everything else keeps playing.
+  Everything else keeps playing. (If a *scheduled* party targets a blanked
+  screen, the screen wakes for the party's minutes and goes dark again after —
+  a birthday never plays invisibly onto a black TV.)
 - Wrong video somewhere? Change that one TV's **Media…** — takes effect in
   seconds, and no other TV so much as flickers.
 

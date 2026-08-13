@@ -29,8 +29,12 @@ export function startScheduler(store, { onTvChanged, onStateChanged }) {
             name: ev.name,
             message: ev.message || null,
             mediaId: ev.mediaId || store.data.settings.birthdayMediaId || null,
-            endsAt: new Date(endMs).toISOString()
+            endsAt: new Date(endMs).toISOString(),
+            // A blanked screen wakes for its scheduled party and re-blanks
+            // after — a birthday must never play invisibly onto a black TV.
+            restorePowerOff: tv.power === 'off'
           };
+          tv.power = 'on';
           touchedTvs.add(tv.id);
         }
       } else if (ev.status === 'active' && now >= endMs) {
@@ -38,6 +42,7 @@ export function startScheduler(store, { onTvChanged, onStateChanged }) {
         stateChanged = true;
         const tv = store.tv(ev.tvId);
         if (tv && tv.override && tv.override.eventId === ev.id) {
+          if (tv.override.restorePowerOff) tv.power = 'off';
           tv.override = null;
           touchedTvs.add(tv.id);
         }
@@ -48,6 +53,7 @@ export function startScheduler(store, { onTvChanged, onStateChanged }) {
     // (manual tests, deleted events, clock jumps).
     for (const tv of store.data.tvs) {
       if (tv.override && Date.parse(tv.override.endsAt) <= now) {
+        if (tv.override.restorePowerOff) tv.power = 'off';
         tv.override = null;
         touchedTvs.add(tv.id);
         stateChanged = true;

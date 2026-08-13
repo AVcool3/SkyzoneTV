@@ -121,6 +121,11 @@
     idleConn.textContent = '';
     idleConn.classList.remove('bad');
 
+    // Any pending error-retry must not survive into a different mode — it
+    // would tear down a birthday screen or relight a powered-off TV.
+    clearTimeout(errorRetryTimer);
+    errorRetryTimer = null;
+
     if (msg.power === 'off') {
       show('off');
       reportStatus();
@@ -166,6 +171,10 @@
     const item = playlist[current];
     if (!item) { show('idle'); return; }
     clearTimeout(errorRetryTimer);
+    errorRetryTimer = null;
+    // The standby element keeps handlers from its last active stint; a
+    // preload failure there must not be mistaken for the ACTIVE item failing.
+    standbyVideo.onended = standbyVideo.onerror = standbyVideo.onplaying = null;
     activeVideo.onended = null;
     activeVideo.src = item.url;
     activeVideo.loop = playlist.length === 1;
@@ -192,7 +201,13 @@
       show('idle');
       idleConn.textContent = 'Assigned media failed to play — check the files in the dashboard. Retrying…';
       idleConn.classList.add('bad');
-      errorRetryTimer = setTimeout(() => { if (playlist.length > 0) { show('playlist'); startCurrent(); } }, 30000);
+      errorRetryTimer = setTimeout(() => {
+        // Retry only if we're still in normal playlist mode by then.
+        if (playlist.length > 0 && state && state.power !== 'off' && !state.override) {
+          show('playlist');
+          startCurrent();
+        }
+      }, 30000);
       return;
     }
     setTimeout(next, 1500);

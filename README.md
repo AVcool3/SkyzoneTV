@@ -38,7 +38,8 @@ npm install
 npm start
 ```
 
-- Dashboard: http://localhost:8080/dashboard/  (password: `skyzone`)
+- Dashboard: http://localhost:8080/dashboard/  (the password is printed in the
+  terminal on startup)
 - Open http://localhost:8080/player/ in another browser window — it appears in
   the dashboard as "TV 1" instantly.
 - Upload `sample-media/skyzone-test-loop.mp4`, click **Apply to all TVs**, and

@@ -15,7 +15,7 @@ date,time,tv,name,message,duration,media
 |---|---|---|---|
 | `date` | yes | `2026-08-13` or `8/13/2026` | The party's date (server's local timezone). |
 | `time` | yes | `14:30` or `2:30 PM` | Start time. The takeover begins at this moment. |
-| `tv` | yes | text | Must match a TV's name in the dashboard. Forgiving: `room1`, `Room 1`, `TV Room 1` all match a TV named "Room 1". Unmatched rows are flagged at import, not silently dropped. |
+| `tv` | yes | text | Must match a TV's name in the dashboard. Capitalization, spaces and punctuation don't matter: `room1`, `Room 1`, `ROOM-1` all match a TV named "Room 1" — but the words must be the same (`Room 13` will NOT quietly match `Room 1`). Unmatched rows are flagged at import, not silently dropped or guessed. |
 | `name` | yes | text | Shown on screen: "Happy Birthday, *Name*!" |
 | `message` | no | text | Replaces the default headline entirely (e.g. "Happy 8th Birthday Maya!"). |
 | `duration` | no | minutes | How long the takeover lasts. Default **5**. |
@@ -26,6 +26,8 @@ Header aliases are accepted (`room` for `tv`, `start` for `time`,
 Extra columns are ignored — so an export from your booking system with more
 columns works as long as the required four exist.
 
-**Re-uploading replaces all *pending* events** (already-played and currently
-active ones are kept as history). So the workflow "fix the CSV, upload again"
-is always safe.
+**Re-uploading replaces the *pending* events for the dates in the file** —
+already-played and currently active ones are kept as history, and events on
+other dates (e.g. tonight's parties when you pre-load tomorrow's CSV) are
+untouched. A file with no valid rows changes nothing at all. So the workflow
+"fix the CSV, upload again" is always safe.

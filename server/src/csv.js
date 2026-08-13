@@ -6,7 +6,7 @@
 //
 // date:     2026-08-13  or  8/13/2026
 // time:     14:30  or  2:30 PM
-// tv:       TV label as shown in the dashboard ("Room 1" matches "room 1", "TV Room 1", ...)
+// tv:       TV label as shown in the dashboard ("Room 1" matches "room 1", "ROOM-1", ...)
 // name:     birthday kid / event name shown on screen
 // message:  optional custom headline (default "Happy Birthday, <name>!")
 // duration: minutes on screen (default 5)
@@ -37,15 +37,24 @@ export function parseCsv(text) {
   return rows;
 }
 
+function validDate(dt) {
+  if (dt.mo < 1 || dt.mo > 12 || dt.d < 1 || dt.d > 31) return null;
+  // Reject dates that would silently roll over (Feb 30, 4/31, ...): JS Date
+  // turns them into a different day/month instead of failing.
+  const probe = new Date(dt.y, dt.mo - 1, dt.d);
+  if (probe.getFullYear() !== dt.y || probe.getMonth() !== dt.mo - 1 || probe.getDate() !== dt.d) return null;
+  return dt;
+}
+
 function parseDate(str) {
   const t = String(str || '').trim();
   let m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-  if (m) return { y: +m[1], mo: +m[2], d: +m[3] };
+  if (m) return validDate({ y: +m[1], mo: +m[2], d: +m[3] });
   m = t.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
   if (m) {
     let y = +m[3];
     if (y < 100) y += 2000;
-    return { y, mo: +m[1], d: +m[2] };
+    return validDate({ y, mo: +m[1], d: +m[2] });
   }
   return null;
 }
@@ -67,24 +76,20 @@ export function normalizeLabel(s) {
   return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
-// Match a CSV "tv" value against the TV list: exact normalized match first,
-// then substring either way ("room1" matches "TV Room 1").
+// Match a CSV "tv" value against the TV list. Matching is exact after
+// normalization ("room1", "Room 1", "ROOM-1" all match a TV named "Room 1").
+// Deliberately NOT fuzzy: a substring guess would silently send a birthday to
+// the wrong room on a typo like "Room 13"; an unmatched row is flagged instead.
 export function matchTv(tvs, value) {
   const v = normalizeLabel(value);
   if (!v) return null;
-  let hit = tvs.find(t => normalizeLabel(t.name) === v);
-  if (hit) return hit;
-  hit = tvs.find(t => normalizeLabel(t.name).includes(v) || v.includes(normalizeLabel(t.name)));
-  return hit || null;
+  return tvs.find(t => normalizeLabel(t.name) === v) || null;
 }
 
 export function matchMedia(media, value) {
   const v = normalizeLabel(value);
   if (!v) return null;
-  let hit = media.find(m => normalizeLabel(m.label) === v);
-  if (hit) return hit;
-  hit = media.find(m => normalizeLabel(m.label).includes(v) || v.includes(normalizeLabel(m.label)));
-  return hit || null;
+  return media.find(m => normalizeLabel(m.label) === v) || null;
 }
 
 // Returns { events: [...], errors: [{line, error}] }

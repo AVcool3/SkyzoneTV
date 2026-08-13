@@ -2,8 +2,17 @@
  * Exercises: login, player registration, upload, assignment, CSV import,
  * birthday takeover, power, day end. Exits 0 on success.
  */
+import fs from 'node:fs';
+
 const BASE = process.env.BASE_URL || 'http://localhost:8080';
-const PASSWORD = process.env.ADMIN_PASSWORD || 'skyzone';
+let PASSWORD = process.env.ADMIN_PASSWORD;
+if (!PASSWORD) {
+  // No env override: the server generated one and stored it in db.json.
+  try {
+    PASSWORD = JSON.parse(fs.readFileSync(new URL('../data/db.json', import.meta.url), 'utf8')).settings.adminPassword;
+  } catch {}
+}
+if (!PASSWORD) { console.error('Cannot determine dashboard password (set ADMIN_PASSWORD)'); process.exit(1); }
 
 let failures = 0;
 function check(name, cond) {
@@ -77,16 +86,43 @@ const run = async () => {
   state = (await api(token, 'GET', '/api/state')).data;
   check('assign-all covers every tv', state.tvs.every(t => t.assignedMediaIds.includes(mediaId)));
 
-  // CSV import (uses named TV; event for later today)
-  const csv = 'date,time,tv,name,duration\n2099-01-01,10:00,Smoke Room 1,CsvKid,5\nbaddate,10:00,Smoke Room 1,X,5\n';
-  const csvForm = new FormData();
-  csvForm.append('file', new Blob([csv], { type: 'text/csv' }), 'events.csv');
-  const csvRes = await fetch(BASE + '/api/events/csv', {
-    method: 'POST', headers: { Authorization: 'Bearer ' + token }, body: csvForm
-  });
-  const csvData = await csvRes.json();
+  // CSV import (uses named TV; far-future dates so nothing fires during the test)
+  const uploadCsv = async body => {
+    const f = new FormData();
+    f.append('file', new Blob([body], { type: 'text/csv' }), 'events.csv');
+    const r = await fetch(BASE + '/api/events/csv', {
+      method: 'POST', headers: { Authorization: 'Bearer ' + token }, body: f
+    });
+    return r.json();
+  };
+  const csvData = await uploadCsv(
+    'date,time,tv,name,duration\n' +
+    '2099-01-01,10:00,Smoke Room 1,CsvKid,5\n' +
+    'baddate,10:00,Smoke Room 1,X,5\n' +          // unparseable date
+    '2099-13-05,10:00,Smoke Room 1,Y,5\n' +       // impossible month (must not roll over)
+    '2099-01-01,10:00,Smoke Room 13,Z,5\n');      // TV typo (must flag, not guess Room 1)
   check('csv imports valid rows', csvData.imported === 1);
-  check('csv reports bad rows', csvData.errors.length === 1);
+  check('csv flags bad date, impossible date, and unknown TV', csvData.errors.length === 3);
+
+  // A failed/garbage upload must not wipe the schedule…
+  const garbage = await uploadCsv('this,is,not\nan,events,file\n');
+  check('garbage csv imports nothing', garbage.imported === 0 && garbage.kept === true);
+  state = (await api(token, 'GET', '/api/state')).data;
+  check('garbage csv keeps existing events', state.events.some(e => e.name === 'CsvKid'));
+
+  // …and a CSV for a different date must not wipe other dates' events.
+  const otherDate = await uploadCsv('date,time,tv,name\n2099-01-02,10:00,Smoke Room 1,NextDayKid\n');
+  check('other-date csv imports', otherDate.imported === 1);
+  state = (await api(token, 'GET', '/api/state')).data;
+  check('other-date csv keeps first date', state.events.some(e => e.name === 'CsvKid'));
+  check('other-date csv added its event', state.events.some(e => e.name === 'NextDayKid'));
+
+  // Re-uploading the same date replaces that date's pending events.
+  await uploadCsv('date,time,tv,name\n2099-01-01,11:00,Smoke Room 1,CsvKid2\n');
+  state = (await api(token, 'GET', '/api/state')).data;
+  check('same-date csv replaces pending events', !state.events.some(e => e.name === 'CsvKid') &&
+    state.events.some(e => e.name === 'CsvKid2') && state.events.some(e => e.name === 'NextDayKid'));
+  await uploadCsv('date,time,tv,name\n2099-01-01,10:00,Smoke Room 1,CsvKid,5\n2099-01-02,10:00,Smoke Room 1,NextDayKid\n');
 
   // birthday takeover via start-now
   state = (await api(token, 'GET', '/api/state')).data;
@@ -116,6 +152,18 @@ const run = async () => {
   await api(token, 'POST', `/api/tvs/${tvId}/power`, { power: 'off' });
   state = (await api(token, 'GET', '/api/state')).data;
   check('power off works', state.tvs.find(t => t.id === tvId)?.power === 'off');
+
+  // A takeover on a powered-off TV wakes the screen, then re-blanks it after.
+  await api(token, 'POST', `/api/tvs/${tvId}/test-birthday`, { name: 'WakeKid', durationMin: 1 });
+  state = (await api(token, 'GET', '/api/state')).data;
+  check('takeover wakes a powered-off screen', state.tvs.find(t => t.id === tvId)?.power === 'on');
+  await api(token, 'POST', `/api/tvs/${tvId}/clear-override`);
+  state = (await api(token, 'GET', '/api/state')).data;
+  check('screen re-blanks after takeover ends', state.tvs.find(t => t.id === tvId)?.power === 'off');
+
+  // TV names must stay unique even after deletions re-open low numbers.
+  const names = state.tvs.map(t => t.name);
+  check('tv names are unique', new Set(names).size === names.length);
 
   await api(token, 'POST', '/api/day/end');
   state = (await api(token, 'GET', '/api/state')).data;
