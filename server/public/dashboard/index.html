@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Skyzone TV Control</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- Login -->
+<div id="login" class="view">
+  <form id="loginForm" class="login-card">
+    <div class="logo">SKY<span>ZONE</span> TV</div>
+    <div class="login-sub">Schaumburg · Media Control</div>
+    <input id="password" type="password" placeholder="Dashboard password" autocomplete="current-password" autofocus>
+    <button type="submit" class="btn primary wide">Sign in</button>
+    <div id="loginError" class="error"></div>
+  </form>
+</div>
+
+<!-- App -->
+<div id="app" class="view hidden">
+  <header>
+    <div class="logo small">SKY<span>ZONE</span> TV</div>
+    <div class="head-status">
+      <span id="connDot" class="dot off" title="Live connection"></span>
+      <span id="dayState" class="day-state"></span>
+    </div>
+    <div class="head-actions">
+      <button id="startDayBtn" class="btn small">▶ Start day</button>
+      <button id="endDayBtn" class="btn small danger">■ End day</button>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="tvs">TVs <span id="tvCount" class="pill"></span></button>
+    <button class="tab" data-tab="media">Media <span id="mediaCount" class="pill"></span></button>
+    <button class="tab" data-tab="events">Events <span id="eventCount" class="pill"></span></button>
+  </nav>
+
+  <!-- TVs -->
+  <section id="tab-tvs" class="tabpane">
+    <div class="pane-tools">
+      <button id="assignAllBtn" class="btn">Set playlist for ALL TVs…</button>
+      <span class="hint">Tip: open <code id="playerUrl"></code> on a TV to pair it — it appears here automatically.</span>
+    </div>
+    <div id="tvGrid" class="tv-grid"></div>
+  </section>
+
+  <!-- Media -->
+  <section id="tab-media" class="tabpane hidden">
+    <div class="pane-tools">
+      <label class="btn primary" for="mediaFile">⬆ Upload MP4</label>
+      <input id="mediaFile" type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.m4v,.webm,.mov" multiple hidden>
+      <span class="hint">Drag &amp; drop files anywhere on this page, or tap Upload. MP4 recommended (H.264 + AAC).</span>
+    </div>
+    <div id="uploadProgress" class="upload-progress hidden">
+      <div class="bar"><div id="uploadBar"></div></div>
+      <span id="uploadLabel"></span>
+    </div>
+    <div id="mediaList" class="media-list"></div>
+  </section>
+
+  <!-- Events -->
+  <section id="tab-events" class="tabpane hidden">
+    <div class="pane-tools">
+      <label class="btn primary" for="csvFile">⬆ Upload events CSV</label>
+      <input id="csvFile" type="file" accept=".csv,text/csv" hidden>
+      <button id="addEventBtn" class="btn">+ Add event</button>
+      <a class="btn ghost" href="sample-events.csv" download>Sample CSV</a>
+      <button id="clearDoneBtn" class="btn ghost">Clear finished</button>
+    </div>
+    <div id="csvReport" class="csv-report hidden"></div>
+    <div class="table-wrap">
+      <table id="eventTable">
+        <thead><tr><th>Starts</th><th>TV</th><th>Name</th><th>Message</th><th>Length</th><th>Media</th><th>Status</th><th></th></tr></thead>
+        <tbody id="eventRows"></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<!-- Media picker modal -->
+<div id="pickerModal" class="modal hidden">
+  <div class="modal-card">
+    <h3 id="pickerTitle">Choose media</h3>
+    <p class="hint">Checked items play in a loop, top to bottom. Numbers show play order.</p>
+    <div id="pickerList" class="picker-list"></div>
+    <div class="modal-actions">
+      <button id="pickerCancel" class="btn ghost">Cancel</button>
+      <button id="pickerSave" class="btn primary">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add event modal -->
+<div id="eventModal" class="modal hidden">
+  <div class="modal-card">
+    <h3>Add event</h3>
+    <label>TV <select id="evTv"></select></label>
+    <label>Name (shown on screen) <input id="evName" placeholder="Aiden"></label>
+    <label>Custom message (optional) <input id="evMessage" placeholder="Happy Birthday, Aiden!"></label>
+    <label>Date &amp; time <input id="evStart" type="datetime-local"></label>
+    <label>Duration (minutes) <input id="evDuration" type="number" value="5" min="1" max="240"></label>
+    <label>Background video (optional) <select id="evMedia"><option value="">Default birthday screen</option></select></label>
+    <div class="modal-actions">
+      <button id="eventCancel" class="btn ghost">Cancel</button>
+      <button id="eventSave" class="btn primary">Add</button>
+    </div>
+    <div id="eventError" class="error"></div>
+  </div>
+</div>
+
+<!-- Preview modal -->
+<div id="previewModal" class="modal hidden">
+  <div class="modal-card wide">
+    <h3 id="previewTitle"></h3>
+    <video id="previewVideo" controls playsinline style="width:100%;max-height:60vh;background:#000;border-radius:8px"></video>
+    <div class="modal-actions"><button id="previewClose" class="btn ghost">Close</button></div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+<div id="dropHint" class="drop-hint hidden">Drop video files to upload</div>
+
+<script src="app.js"></script>
+</body>
+</html>
