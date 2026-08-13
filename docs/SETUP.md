@@ -90,6 +90,28 @@ public internet.
 
 ## 3. Set up each TV (~10 minutes per TV)
 
+### If the TVs have Google TV built in (no stick needed)
+
+If the park's TVs already run Google TV / Android TV (Google Play on the TV
+itself), skip the Fire Sticks — install the player directly on each TV:
+
+1. **Developer mode:** Settings → System → About → click **"Android TV OS
+   build"** 7 times.
+2. **Install Downloader:** Play Store on the TV → "**Downloader by AFTVnews**".
+3. **Allow installs:** Settings → Apps → Security & Restrictions → **Unknown
+   sources** → ON for Downloader.
+4. **Install Fully Kiosk:** open Downloader → enter `fully-kiosk.com/go` →
+   install the APK.
+5. **Configure Fully Kiosk:** Start URL `http://YOUR-SERVER-IP:8080/player/`;
+   Web Content Settings → **Autoplay Videos ON**; Device Management →
+   **Launch on Boot ON**, **Keep Screen On ON** (grant what it asks).
+6. **Stop the TV sleeping:** Settings → System → Power & Energy → "Turn off
+   display" → longest/Never, and **Ambient mode / Screen saver → Off** so
+   Google's screensaver never covers your media.
+7. Rename the TV in the dashboard to its physical room.
+
+### If the TVs are not smart / not Android: add a Fire TV Stick per TV
+
 Repeat once per TV. You need: the Fire TV stick, its remote, the park Wi-Fi
 password, and the server address from step 2.
 
