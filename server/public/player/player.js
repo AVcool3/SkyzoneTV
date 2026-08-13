@@ -107,7 +107,7 @@
       overrideVideo.pause();
       overrideVideo.removeAttribute('src');
       overrideVideo.load();
-      stopConfetti();
+      BirthdayScene.stop();
     }
   }
 
@@ -233,13 +233,42 @@
   }
 
   // --- birthday / event takeover -----------------------------------------
+  // Rebuild the headline as letter spans (staggered comic pop-in) — but only
+  // when the text actually changes, so repeated state pushes don't restart it.
+  let lastHeadline = null;
+  function setHeadline(text) {
+    if (text === lastHeadline) return;
+    lastHeadline = text;
+    overrideHeadline.textContent = '';
+    let i = 0;
+    const words = String(text).split(' ');
+    words.forEach((word, wi) => {
+      const w = document.createElement('span');
+      w.className = 'word';
+      for (const ch of word) {
+        const l = document.createElement('span');
+        l.className = 'letter';
+        l.textContent = ch;
+        l.style.animationDelay = (i++ * 0.05) + 's';
+        w.appendChild(l);
+      }
+      overrideHeadline.appendChild(w);
+      if (wi < words.length - 1) overrideHeadline.appendChild(document.createTextNode(' '));
+    });
+  }
+
   function showOverride(o) {
-    overrideHeadline.textContent = o.message || `Happy Birthday, ${o.name}!`;
+    setHeadline(o.message || `Happy Birthday, ${o.name}!`);
+    let videoBehind = false;
     if (o.mediaUrl) {
       overrideEl.classList.add('has-video');
-      // If the birthday video can't play, fall back to the built-in animated
-      // background rather than showing black behind the name.
-      overrideVideo.onerror = () => overrideEl.classList.remove('has-video');
+      videoBehind = true;
+      // If the birthday video can't play, fall back to the built-in comic
+      // background rather than showing black behind the hero.
+      overrideVideo.onerror = () => {
+        overrideEl.classList.remove('has-video');
+        BirthdayScene.start(canvas, o.name, false);
+      };
       const abs = new URL(o.mediaUrl, location.href).href;
       if (overrideVideo.src !== abs) {
         overrideVideo.src = o.mediaUrl;
@@ -252,7 +281,7 @@
     }
     stopVideos();
     show('override');
-    startConfetti();
+    BirthdayScene.start(canvas, o.name, videoBehind);
 
     // Local fallback: if the server connection is down when the event should
     // end, clear it ourselves so a TV never gets stuck on a birthday screen.
@@ -265,53 +294,8 @@
     }
   }
 
-  // --- confetti ----------------------------------------------------------
+  // --- birthday scene canvas (rendering lives in birthday.js) -------------
   const canvas = document.getElementById('confetti');
-  const ctx = canvas.getContext('2d');
-  let confettiRaf = null;
-  let pieces = [];
-  const COLORS = ['#ffd166', '#ef476f', '#06d6a0', '#118ab2', '#ffffff', '#ff9f1c'];
-
-  function startConfetti() {
-    canvas.width = innerWidth;
-    canvas.height = innerHeight;
-    pieces = Array.from({ length: 140 }, () => ({
-      x: Math.random() * canvas.width,
-      y: Math.random() * -canvas.height,
-      w: 6 + Math.random() * 9,
-      h: 10 + Math.random() * 14,
-      vy: 1.2 + Math.random() * 2.4,
-      vx: -0.8 + Math.random() * 1.6,
-      rot: Math.random() * Math.PI,
-      vrot: -0.06 + Math.random() * 0.12,
-      color: COLORS[(Math.random() * COLORS.length) | 0]
-    }));
-    if (!confettiRaf) confettiRaf = requestAnimationFrame(drawConfetti);
-  }
-
-  function drawConfetti() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    for (const p of pieces) {
-      p.y += p.vy; p.x += p.vx + Math.sin(p.y / 40) * 0.6; p.rot += p.vrot;
-      if (p.y > canvas.height + 20) { p.y = -20; p.x = Math.random() * canvas.width; }
-      ctx.save();
-      ctx.translate(p.x, p.y);
-      ctx.rotate(p.rot);
-      ctx.fillStyle = p.color;
-      ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
-      ctx.restore();
-    }
-    confettiRaf = requestAnimationFrame(drawConfetti);
-  }
-
-  function stopConfetti() {
-    if (confettiRaf) { cancelAnimationFrame(confettiRaf); confettiRaf = null; }
-    ctx && ctx.clearRect(0, 0, canvas.width, canvas.height);
-  }
-
-  addEventListener('resize', () => {
-    if (overrideEl.classList.contains('visible')) { canvas.width = innerWidth; canvas.height = innerHeight; }
-  });
 
   // Keep the screen awake where the platform allows it (Fully Kiosk / native
   // wrapper also enforce this on their side).

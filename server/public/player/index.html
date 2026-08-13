@@ -58,19 +58,30 @@
   #confetti { position: absolute; inset: 0; width: 100%; height: 100%; }
   #override .text {
     position: absolute; inset: 0; display: flex; flex-direction: column;
-    align-items: center; justify-content: center; gap: 2vmin; text-align: center; padding: 0 5vmin;
+    align-items: center; justify-content: flex-start; gap: 2vmin; text-align: center;
+    padding: 7vh 5vmin 0;
   }
   #override .headline {
-    font-size: 9vmin; font-weight: 800; color: #fff;
-    text-shadow: 0 0.6vmin 2.5vmin rgba(0,0,0,0.55), 0 0 6vmin rgba(255,255,255,0.35);
+    font-family: 'Arial Black', Impact, 'Segoe UI', sans-serif;
+    font-size: 9.5vmin; font-weight: 900; color: #ffd93b;
+    -webkit-text-stroke: 0.28vmin #d62828;
+    text-shadow: 0.8vmin 0.9vmin 0 #101010, 0 0 6vmin rgba(255,217,59,0.5);
+    transform: rotate(-2deg);
     animation: pulse 2.2s ease-in-out infinite;
-    line-height: 1.15; overflow-wrap: anywhere;
+    line-height: 1.12; overflow-wrap: anywhere; letter-spacing: 0.02em;
+  }
+  #override .headline .word { display: inline-block; white-space: nowrap; }
+  #override .headline .letter { display: inline-block; animation: letterpop 0.55s cubic-bezier(0.2, 1.9, 0.4, 1) both; }
+  @keyframes letterpop {
+    from { transform: scale(0) rotate(-18deg); opacity: 0; }
+    to   { transform: none; opacity: 1; }
   }
   #override .subline {
-    font-size: 4.5vmin; font-weight: 600; color: #ffe9a8;
-    text-shadow: 0 0.4vmin 1.5vmin rgba(0,0,0,0.6);
+    font-size: 4vmin; font-weight: 800; color: #ffffff;
+    text-shadow: 0.35vmin 0.4vmin 0 #101010, 0 0 3vmin rgba(0,0,0,0.5);
+    transform: rotate(-2deg);
   }
-  @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.045); } }
+  @keyframes pulse { 0%,100% { transform: rotate(-2deg) scale(1); } 50% { transform: rotate(-2deg) scale(1.04); } }
 
   /* Tiny status dot (only when disconnected from server) */
   #netdot {
@@ -104,6 +115,7 @@
   <div id="off"></div>
   <div id="netdot"></div>
 
+<script src="birthday.js"></script>
 <script src="player.js"></script>
 </body>
 </html>
