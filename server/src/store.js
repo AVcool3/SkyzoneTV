@@ -2,9 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const DEFAULTS = () => ({
-  tvs: [],      // { id, name, createdAt, lastSeen, power: 'on'|'off', assignedMediaIds: [], override: null }
-  media: [],    // { id, label, originalName, ext, size, uploadedAt }
-  events: [],   // { id, tvId, name, message, startsAt, durationMin, mediaId, status: 'scheduled'|'active'|'done', source }
+  tvs: [],      // { id, name, createdAt, lastSeen, power, assignedMediaIds, playlistId, override }
+  media: [],    // { id, label, originalName, ext, size, uploadedAt, durationSec (images) }
+  playlists: [], // { id, name, transition: 'none'|'fade', items: [{ mediaId, enabled, durationSec }] }
+  events: [],   // { id, tvId, name, message, startsAt, durationMin, mediaId, theme, status, source }
   settings: {
     birthdayMediaId: null,
     dayStarted: true,
@@ -60,4 +61,5 @@ export class Store {
   tv(id) { return this.data.tvs.find(t => t.id === id); }
   medium(id) { return this.data.media.find(m => m.id === id); }
   event(id) { return this.data.events.find(e => e.id === id); }
+  playlist(id) { return this.data.playlists.find(p => p.id === id); }
 }

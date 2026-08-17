@@ -36,6 +36,7 @@
   <nav class="tabs">
     <button class="tab active" data-tab="tvs">TVs <span id="tvCount" class="pill"></span></button>
     <button class="tab" data-tab="media">Media <span id="mediaCount" class="pill"></span></button>
+    <button class="tab" data-tab="playlists">Playlists <span id="playlistCount" class="pill"></span></button>
     <button class="tab" data-tab="events">Events <span id="eventCount" class="pill"></span></button>
     <button class="tab" data-tab="themes">Themes <span id="themeCount" class="pill"></span></button>
   </nav>
@@ -52,15 +53,24 @@
   <!-- Media -->
   <section id="tab-media" class="tabpane hidden">
     <div class="pane-tools">
-      <label class="btn primary" for="mediaFile">⬆ Upload MP4</label>
-      <input id="mediaFile" type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.m4v,.webm,.mov" multiple hidden>
-      <span class="hint">Drag &amp; drop files anywhere on this page, or tap Upload. MP4 recommended (H.264 + AAC).</span>
+      <label class="btn primary" for="mediaFile">⬆ Upload media</label>
+      <input id="mediaFile" type="file" accept="video/mp4,video/webm,video/quicktime,image/jpeg,image/png,image/gif,image/webp,.mp4,.m4v,.webm,.mov,.jpg,.jpeg,.png,.gif,.webp" multiple hidden>
+      <span class="hint">Videos (MP4 recommended) and photos/slides (JPG, PNG). Drag &amp; drop anywhere on this page.</span>
     </div>
     <div id="uploadProgress" class="upload-progress hidden">
       <div class="bar"><div id="uploadBar"></div></div>
       <span id="uploadLabel"></span>
     </div>
     <div id="mediaList" class="media-list"></div>
+  </section>
+
+  <!-- Playlists -->
+  <section id="tab-playlists" class="tabpane hidden">
+    <div class="pane-tools">
+      <button id="addPlaylistBtn" class="btn primary">+ New playlist</button>
+      <span class="hint">A playlist is a mix of videos and photos that plays in a loop. Assign it to one TV, several, or all of them — edits go live instantly.</span>
+    </div>
+    <div id="playlistList" class="media-list"></div>
   </section>
 
   <!-- Themes -->
@@ -136,6 +146,51 @@
   </div>
 </div>
 
+<!-- Playlist editor modal (Directable-style slides table) -->
+<div id="playlistModal" class="modal hidden">
+  <div class="modal-card wide">
+    <h3 id="playlistModalTitle">Edit Playlist</h3>
+    <label>Playlist name <input id="plName" placeholder="Party TV 1"></label>
+    <label>Transitions
+      <span class="check-row">
+        <label class="check"><input type="radio" name="plTransition" value="none" checked> None</label>
+        <label class="check"><input type="radio" name="plTransition" value="fade"> Fade In/Out</label>
+      </span>
+    </label>
+    <div class="pane-tools" style="margin:4px 0 0">
+      <strong style="flex:1">Slides</strong>
+      <button id="plAddMedia" class="btn small primary">+ Add media</button>
+    </div>
+    <div id="plRows" class="pl-rows"></div>
+    <div class="modal-actions">
+      <button id="playlistCancel" class="btn ghost">Cancel</button>
+      <button id="playlistSave" class="btn primary">Save Changes</button>
+    </div>
+    <div id="playlistError" class="error"></div>
+  </div>
+</div>
+
+<!-- Add-media-to-playlist picker -->
+<div id="plMediaModal" class="modal hidden">
+  <div class="modal-card">
+    <h3>Add media</h3>
+    <div id="plMediaList" class="picker-list"></div>
+    <div class="modal-actions"><button id="plMediaClose" class="btn ghost">Done</button></div>
+  </div>
+</div>
+
+<!-- TV content picker (playlist or custom selection) -->
+<div id="contentModal" class="modal hidden">
+  <div class="modal-card">
+    <h3 id="contentTitle">Choose content</h3>
+    <div id="contentList" class="picker-list"></div>
+    <div class="modal-actions">
+      <button id="contentCancel" class="btn ghost">Cancel</button>
+      <button id="contentSave" class="btn primary">Apply</button>
+    </div>
+  </div>
+</div>
+
 <!-- Theme builder modal -->
 <div id="themeModal" class="modal hidden">
   <div class="modal-card">
@@ -172,6 +227,7 @@
   <div class="modal-card wide">
     <h3 id="previewTitle"></h3>
     <video id="previewVideo" controls playsinline style="width:100%;max-height:60vh;background:#000;border-radius:8px"></video>
+    <img id="previewImage" class="hidden" style="width:100%;max-height:60vh;object-fit:contain;background:#000;border-radius:8px" alt="">
     <div class="modal-actions"><button id="previewClose" class="btn ghost">Close</button></div>
   </div>
 </div>

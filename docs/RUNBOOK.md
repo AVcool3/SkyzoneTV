@@ -11,9 +11,10 @@ The whole daily routine happens in the dashboard on your phone or laptop:
 2. Glance at the TV grid: every card should show **ONLINE**. An OFFLINE card
    means that stick lost power or Wi-Fi — power-cycle that TV's stick; it
    rejoins by itself.
-3. Upload any new media for the day (**Media** tab → Upload MP4, or drag &
-   drop), and adjust playlists if needed (**Media…** on a TV card, or
-   **Set playlist for ALL TVs…**).
+3. Upload any new media for the day (**Media** tab → Upload media, or drag &
+   drop — videos and photos both work), adjust playlists in the **Playlists**
+   tab, and point TVs at them (**Content…** on a TV card, or **Apply to ALL
+   TVs** on a playlist).
 4. Upload today's parties (**Events** tab → **Upload events CSV**). Check the
    import summary — fix any flagged rows (usually a TV name typo) and
    re-upload. Re-uploading replaces the pending list, so it's safe to do twice.
@@ -30,8 +31,9 @@ Nothing — it runs itself:
   Everything else keeps playing. (If a *scheduled* party targets a blanked
   screen, the screen wakes for the party's minutes and goes dark again after —
   a birthday never plays invisibly onto a black TV.)
-- Wrong video somewhere? Change that one TV's **Media…** — takes effect in
-  seconds, and no other TV so much as flickers.
+- Wrong content somewhere? Change that one TV's **Content…** (or edit the
+  playlist it plays) — takes effect in seconds, and no other TV so much as
+  flickers.
 
 ## Evening (close the park)
 

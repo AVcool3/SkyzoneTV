@@ -32,6 +32,21 @@ async function api(token, method, path, body) {
   return { status: res.status, data: await res.json().catch(() => ({})) };
 }
 
+// Remove anything a previous (possibly interrupted) smoke run left behind,
+// so the suite is safe to re-run against a live server.
+async function cleanupLeftovers(token) {
+  const state = (await api(token, 'GET', '/api/state')).data;
+  for (const t of state.tvs) if (/^Smoke /.test(t.name)) await api(token, 'DELETE', `/api/tvs/${t.id}`);
+  for (const m of state.media) if (/^smoke-/.test(m.label)) await api(token, 'DELETE', `/api/media/${m.id}`);
+  for (const p of state.playlists || []) if (/^Smoke /.test(p.name)) await api(token, 'DELETE', `/api/playlists/${p.id}`);
+  for (const c of state.settings.customThemes || []) if (/^Smoke /.test(c.name)) await api(token, 'DELETE', `/api/themes/${c.id}`);
+  for (const e of state.events) {
+    if (['CsvKid', 'CsvKid2', 'ThemeKid', 'NextDayKid', 'SoccerKid'].includes(e.name)) {
+      await api(token, 'DELETE', `/api/events/${e.id}`);
+    }
+  }
+}
+
 const run = async () => {
   // login
   const bad = await api(null, 'POST', '/api/login', { password: 'wrong' });
@@ -42,6 +57,8 @@ const run = async () => {
 
   const noAuth = await api(null, 'GET', '/api/state');
   check('state requires auth', noAuth.status === 401);
+
+  await cleanupLeftovers(token);
 
   // player registration
   const reg = await api(null, 'POST', '/api/player/register', {});
@@ -85,6 +102,49 @@ const run = async () => {
   await api(token, 'POST', '/api/assign-all', { mediaIds: [mediaId] });
   state = (await api(token, 'GET', '/api/state')).data;
   check('assign-all covers every tv', state.tvs.every(t => t.assignedMediaIds.includes(mediaId)));
+
+  // image media + playlists
+  const imgForm = new FormData();
+  imgForm.append('file', new Blob([new Uint8Array(500)], { type: 'image/png' }), 'smoke-photo.png');
+  const imgUp = await fetch(BASE + '/api/media', {
+    method: 'POST', headers: { Authorization: 'Bearer ' + token }, body: imgForm
+  }).then(r => r.json());
+  check('image upload works', !!imgUp.media?.id);
+  check('image gets type image', imgUp.media?.type === 'image');
+  const imageId = imgUp.media.id;
+
+  await api(token, 'PATCH', `/api/media/${imageId}`, { durationSec: 12 });
+  state = (await api(token, 'GET', '/api/state')).data;
+  check('image duration editable', state.media.find(m => m.id === imageId)?.durationSec === 12);
+
+  const plRes = await api(token, 'POST', '/api/playlists', {
+    name: 'Smoke Mix', transition: 'fade',
+    items: [{ mediaId, enabled: true }, { mediaId: imageId, enabled: false, durationSec: 5 }]
+  });
+  check('playlist created', plRes.status === 200 && plRes.data.playlist?.id);
+  const playlistId = plRes.data.playlist.id;
+
+  const plAssign = await api(token, 'POST', `/api/tvs/${tvId}/playlist`, { playlistId });
+  check('tv accepts playlist', plAssign.status === 200);
+  state = (await api(token, 'GET', '/api/state')).data;
+  check('tv playlistId stored', state.tvs.find(t => t.id === tvId)?.playlistId === playlistId);
+
+  await api(token, 'POST', `/api/tvs/${tvId}/assign`, { mediaIds: [mediaId] });
+  state = (await api(token, 'GET', '/api/state')).data;
+  check('custom assign takes tv off playlist', state.tvs.find(t => t.id === tvId)?.playlistId === null);
+
+  await api(token, 'POST', `/api/playlists/${playlistId}/assign-all`);
+  state = (await api(token, 'GET', '/api/state')).data;
+  check('playlist assign-all covers every tv', state.tvs.every(t => t.playlistId === playlistId));
+
+  await api(token, 'DELETE', `/api/media/${imageId}`);
+  state = (await api(token, 'GET', '/api/state')).data;
+  check('deleting media removes it from playlists',
+    !state.playlists.find(p => p.id === playlistId)?.items.some(it => it.mediaId === imageId));
+
+  await api(token, 'DELETE', `/api/playlists/${playlistId}`);
+  state = (await api(token, 'GET', '/api/state')).data;
+  check('deleting playlist frees tvs', state.tvs.every(t => t.playlistId === null));
 
   // CSV import (uses named TV; far-future dates so nothing fires during the test)
   const uploadCsv = async body => {

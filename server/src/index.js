@@ -64,9 +64,13 @@ function tvOnline(tvId) {
   return !!set && set.size > 0;
 }
 
+const IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+function mediaType(m) { return IMAGE_EXTS.includes(m.ext.toLowerCase()) ? 'image' : 'video'; }
+
 function mediaPublic(m) {
   return { id: m.id, label: m.label, originalName: m.originalName, size: m.size,
-    uploadedAt: m.uploadedAt, url: `/media/${m.id}${m.ext}` };
+    uploadedAt: m.uploadedAt, url: `/media/${m.id}${m.ext}`,
+    type: mediaType(m), durationSec: m.durationSec || 8 };
 }
 
 function dashboardSnapshot() {
@@ -75,10 +79,16 @@ function dashboardSnapshot() {
     tvs: store.data.tvs.map(t => ({
       id: t.id, name: t.name, power: t.power, online: tvOnline(t.id),
       lastSeen: t.lastSeen, assignedMediaIds: t.assignedMediaIds,
+      playlistId: t.playlistId || null,
       nowPlaying: t.nowPlaying || null,
       override: t.override ? { name: t.override.name, endsAt: t.override.endsAt } : null
     })),
     media: store.data.media.map(mediaPublic),
+    playlists: store.data.playlists.map(p => ({
+      id: p.id, name: p.name, transition: p.transition || 'none',
+      items: p.items,
+      usedBy: store.data.tvs.filter(t => t.playlistId === p.id).length
+    })),
     events: store.data.events.map(e => ({
       ...e, tvName: store.tv(e.tvId)?.name || '(removed TV)',
       mediaLabel: e.mediaId ? (store.medium(e.mediaId)?.label || null) : null
@@ -92,11 +102,29 @@ function dashboardSnapshot() {
   };
 }
 
+function playerItem(m, durationSec) {
+  return { id: m.id, label: m.label, url: `/media/${m.id}${m.ext}`,
+    type: mediaType(m), durationSec: durationSec || m.durationSec || 8 };
+}
+
 function playerState(tv) {
-  const playlist = tv.assignedMediaIds
-    .map(id => store.medium(id))
-    .filter(Boolean)
-    .map(m => ({ id: m.id, label: m.label, url: `/media/${m.id}${m.ext}` }));
+  // A TV plays either a named playlist (resolved live, so playlist edits hit
+  // the screen immediately) or its own custom selection.
+  let playlist = [];
+  let transition = 'none';
+  const pl = tv.playlistId ? store.playlist(tv.playlistId) : null;
+  if (pl) {
+    transition = pl.transition === 'fade' ? 'fade' : 'none';
+    playlist = pl.items
+      .filter(it => it.enabled !== false)
+      .map(it => { const m = store.medium(it.mediaId); return m ? playerItem(m, it.durationSec) : null; })
+      .filter(Boolean);
+  } else {
+    playlist = tv.assignedMediaIds
+      .map(id => store.medium(id))
+      .filter(Boolean)
+      .map(m => playerItem(m));
+  }
   let override = null;
   if (tv.override) {
     const m = tv.override.mediaId ? store.medium(tv.override.mediaId) : null;
@@ -122,7 +150,7 @@ function playerState(tv) {
       themeSpec
     };
   }
-  return { type: 'state', tv: { id: tv.id, name: tv.name }, power: tv.power, playlist, override };
+  return { type: 'state', tv: { id: tv.id, name: tv.name }, power: tv.power, playlist, transition, override };
 }
 
 function pushTv(tvId) {
@@ -185,6 +213,7 @@ app.post('/api/player/register', (req, res) => {
       lastSeen: new Date().toISOString(),
       power: 'on',
       assignedMediaIds: [],
+      playlistId: null,
       nowPlaying: null,
       override: null
     };
@@ -226,6 +255,7 @@ app.post('/api/tvs/:id/assign', requireAuth, (req, res) => {
   const { mediaIds } = req.body || {};
   if (!Array.isArray(mediaIds)) return res.status(400).json({ error: 'mediaIds must be an array' });
   tv.assignedMediaIds = mediaIds.filter(id => store.medium(id));
+  tv.playlistId = null; // a custom selection takes the TV off any named playlist
   store.save();
   pushTv(tv.id);
   pushDashboards();
@@ -293,8 +323,8 @@ const upload = multer({
   }),
   limits: { fileSize: 4 * 1024 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    const ok = /\.(mp4|m4v|webm|mov)$/i.test(file.originalname);
-    cb(ok ? null : new Error('Only .mp4, .m4v, .webm or .mov files are accepted'), ok);
+    const ok = /\.(mp4|m4v|webm|mov|jpg|jpeg|png|gif|webp)$/i.test(file.originalname);
+    cb(ok ? null : new Error('Accepted files: .mp4, .m4v, .webm, .mov video or .jpg, .png, .gif, .webp images'), ok);
   }
 });
 
@@ -321,8 +351,12 @@ app.post('/api/media', requireAuth, (req, res) => {
 app.patch('/api/media/:id', requireAuth, (req, res) => {
   const m = store.medium(req.params.id);
   if (!m) return res.status(404).json({ error: 'No such media' });
-  const { label } = req.body || {};
+  const { label, durationSec } = req.body || {};
   if (typeof label === 'string' && label.trim()) m.label = label.trim().slice(0, 80);
+  if (durationSec !== undefined) {
+    const d = parseFloat(durationSec);
+    if (Number.isFinite(d)) m.durationSec = Math.min(Math.max(d, 1), 3600);
+  }
   store.save();
   pushAllTvs();
   pushDashboards();
@@ -334,6 +368,13 @@ app.delete('/api/media/:id', requireAuth, (req, res) => {
   if (i === -1) return res.status(404).json({ error: 'No such media' });
   const [m] = store.data.media.splice(i, 1);
   const touched = new Set();
+  for (const pl of store.data.playlists) {
+    const before = pl.items.length;
+    pl.items = pl.items.filter(it => it.mediaId !== m.id);
+    if (pl.items.length !== before) {
+      for (const tv of store.data.tvs) if (tv.playlistId === pl.id) touched.add(tv.id);
+    }
+  }
   for (const tv of store.data.tvs) {
     if (tv.assignedMediaIds.includes(m.id)) {
       tv.assignedMediaIds = tv.assignedMediaIds.filter(id => id !== m.id);
@@ -358,9 +399,77 @@ app.post('/api/assign-all', requireAuth, (req, res) => {
   const { mediaIds } = req.body || {};
   if (!Array.isArray(mediaIds)) return res.status(400).json({ error: 'mediaIds must be an array' });
   const clean = mediaIds.filter(id => store.medium(id));
-  for (const tv of store.data.tvs) tv.assignedMediaIds = [...clean];
+  for (const tv of store.data.tvs) { tv.assignedMediaIds = [...clean]; tv.playlistId = null; }
   store.save();
   pushAllTvs();
+  pushDashboards();
+  res.json({ ok: true });
+});
+
+// ---- Playlists ----
+function cleanPlaylistItems(items) {
+  return (Array.isArray(items) ? items : [])
+    .filter(it => it && store.medium(it.mediaId))
+    .slice(0, 100)
+    .map(it => ({
+      mediaId: it.mediaId,
+      enabled: it.enabled !== false,
+      durationSec: Math.min(Math.max(parseFloat(it.durationSec) || 8, 1), 3600)
+    }));
+}
+
+app.post('/api/playlists', requireAuth, (req, res) => {
+  const { id, name, transition, items } = req.body || {};
+  if (!name || !String(name).trim()) return res.status(400).json({ error: 'Playlist needs a name' });
+  const pl = {
+    id: id && store.playlist(id) ? id : crypto.randomUUID(),
+    name: String(name).trim().slice(0, 60),
+    transition: transition === 'fade' ? 'fade' : 'none',
+    items: cleanPlaylistItems(items)
+  };
+  const i = store.data.playlists.findIndex(p => p.id === pl.id);
+  if (i === -1) store.data.playlists.push(pl); else store.data.playlists[i] = pl;
+  store.save();
+  for (const tv of store.data.tvs) if (tv.playlistId === pl.id) pushTv(tv.id);
+  pushDashboards();
+  res.json({ ok: true, playlist: pl });
+});
+
+app.delete('/api/playlists/:id', requireAuth, (req, res) => {
+  const i = store.data.playlists.findIndex(p => p.id === req.params.id);
+  if (i === -1) return res.status(404).json({ error: 'No such playlist' });
+  store.data.playlists.splice(i, 1);
+  for (const tv of store.data.tvs) {
+    if (tv.playlistId === req.params.id) {
+      tv.playlistId = null; // falls back to the TV's custom selection
+      pushTv(tv.id);
+    }
+  }
+  store.save();
+  pushDashboards();
+  res.json({ ok: true });
+});
+
+app.post('/api/playlists/:id/assign-all', requireAuth, (req, res) => {
+  if (!store.playlist(req.params.id)) return res.status(404).json({ error: 'No such playlist' });
+  for (const tv of store.data.tvs) tv.playlistId = req.params.id;
+  store.save();
+  pushAllTvs();
+  pushDashboards();
+  res.json({ ok: true });
+});
+
+// Point a TV at a playlist (playlistId: null reverts to its custom selection).
+app.post('/api/tvs/:id/playlist', requireAuth, (req, res) => {
+  const tv = store.tv(req.params.id);
+  if (!tv) return res.status(404).json({ error: 'No such TV' });
+  const { playlistId } = req.body || {};
+  if (playlistId !== null && !store.playlist(playlistId)) {
+    return res.status(400).json({ error: 'No such playlist' });
+  }
+  tv.playlistId = playlistId;
+  store.save();
+  pushTv(tv.id);
   pushDashboards();
   res.json({ ok: true });
 });

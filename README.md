@@ -2,8 +2,11 @@
 
 A complete digital-signage system for the 12 TVs at Skyzone Schaumburg:
 
-- **Web dashboard** (phone or laptop) — see every TV live, upload MP4s, label media
-  and TVs, assign what plays where, and start/end the day with one button.
+- **Web dashboard** (phone or laptop) — see every TV live, upload videos and
+  photo slides into a media library, build **playlists** (mixes of media with
+  per-slide timing, play toggles, and fade transitions), assign them per TV or
+  to all TVs, and start/end the day with one button. Photos have an
+  **Edit in Canva** shortcut for continued design work.
 - **TV player** — runs full screen on each TV, loops its assigned playlist, and
   keeps playing even if the network hiccups. Each TV is independent: changing
   one never interrupts the other eleven.

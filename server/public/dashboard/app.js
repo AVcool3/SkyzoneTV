@@ -134,13 +134,22 @@
     if (renderHeld) { renderPending = true; return; }
     $('tvCount').textContent = state.tvs.length;
     $('mediaCount').textContent = state.media.length;
+    $('playlistCount').textContent = (state.playlists || []).length;
     $('eventCount').textContent = state.events.filter(e => e.status !== 'done').length;
     $('themeCount').textContent = 5 + (state.settings.customThemes || []).length;
     $('dayState').textContent = state.settings.dayStarted ? 'Day running' : 'Day ended — screens off';
     renderTvs();
     renderMedia();
+    renderPlaylists();
     renderEvents();
     renderThemes();
+  }
+
+  function thumbHtml(m, cls = 'thumb') {
+    // Photos show themselves; videos show their first frame via preload=metadata.
+    return m.type === 'image'
+      ? `<img class="${cls}" src="${esc(m.url)}" loading="lazy" alt="">`
+      : `<video class="${cls}" src="${esc(m.url)}" preload="metadata" muted playsinline></video>`;
   }
 
   function themeDisplayName(key) {
@@ -162,8 +171,10 @@
     for (const tv of state.tvs) {
       const card = document.createElement('div');
       card.className = 'tv-card' + (tv.online ? '' : ' offline');
-      const playlistNames = tv.assignedMediaIds
-        .map(id => state.media.find(m => m.id === id)?.label).filter(Boolean);
+      const pl = tv.playlistId ? (state.playlists || []).find(p => p.id === tv.playlistId) : null;
+      const playlistNames = pl
+        ? [`Playlist: ${pl.name}`]
+        : tv.assignedMediaIds.map(id => state.media.find(m => m.id === id)?.label).filter(Boolean);
       card.innerHTML = `
         <div class="tv-head">
           <input class="tv-name" value="${esc(tv.name)}" title="Click to rename">
@@ -178,7 +189,7 @@
           playlistNames.length ? `Loop: <span class="playing">${esc(playlistNames.join(' → '))}</span>` :
           'No media assigned'}</div>
         <div class="tv-actions">
-          <button class="btn tiny" data-act="media">Media…</button>
+          <button class="btn tiny" data-act="media">Content…</button>
           <button class="btn tiny" data-act="power">${tv.power === 'on' ? 'Screen off' : 'Screen on'}</button>
           <button class="btn tiny" data-act="bday">🎂 Test</button>
           ${tv.override ? '<button class="btn tiny" data-act="clear">Stop takeover</button>' : ''}
@@ -192,10 +203,7 @@
       });
       nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') nameInput.blur(); });
 
-      card.querySelector('[data-act="media"]').addEventListener('click', () =>
-        openPicker(`Playlist for ${tv.name}`, tv.assignedMediaIds, ids =>
-          api(`/api/tvs/${tv.id}/assign`, { method: 'POST', body: JSON.stringify({ mediaIds: ids }) })
-            .then(() => toast(`Updated ${tv.name}`)).catch(e => toast(e.message, true))));
+      card.querySelector('[data-act="media"]').addEventListener('click', () => openContentModal(tv));
 
       card.querySelector('[data-act="power"]').addEventListener('click', () =>
         api(`/api/tvs/${tv.id}/power`, { method: 'POST', body: JSON.stringify({ power: tv.power === 'on' ? 'off' : 'on' }) })
@@ -233,14 +241,18 @@
     for (const m of state.media) {
       const isBday = state.settings.birthdayMediaId === m.id;
       const usedBy = state.tvs.filter(t => t.assignedMediaIds.includes(m.id)).length;
+      const inPlaylists = (state.playlists || []).filter(p => p.items.some(it => it.mediaId === m.id)).length;
       const card = document.createElement('div');
       card.className = 'media-card';
       card.innerHTML = `
+        <div class="thumb-wrap">${thumbHtml(m)}<span class="type-badge">${m.type === 'image' ? '🖼 PHOTO' : '🎬 VIDEO'}</span></div>
         <input class="m-label" value="${esc(m.label)}" title="Click to rename">
-        <div class="m-meta">${fmtSize(m.size)} · uploaded ${fmtTime(m.uploadedAt)} · on ${usedBy} TV${usedBy === 1 ? '' : 's'}</div>
+        <div class="m-meta">${fmtSize(m.size)} · uploaded ${fmtTime(m.uploadedAt)} · ${usedBy} TV${usedBy === 1 ? '' : 's'} · ${inPlaylists} playlist${inPlaylists === 1 ? '' : 's'}</div>
+        ${m.type === 'image' ? `<div class="m-duration">Shows for <input type="number" class="m-dur" value="${m.durationSec}" min="1" max="3600" step="1"> seconds</div>` : ''}
         ${isBday ? '<div class="m-bday">🎂 Default birthday video</div>' : ''}
         <div class="m-actions">
-          <button class="btn tiny" data-act="preview">▶ Preview</button>
+          <button class="btn tiny" data-act="preview">${m.type === 'image' ? '🔍 View' : '▶ Preview'}</button>
+          ${m.type === 'image' ? '<button class="btn tiny" data-act="canva">🎨 Edit in Canva</button>' : ''}
           <button class="btn tiny" data-act="all">Apply to all TVs</button>
           <button class="btn tiny" data-act="bday">${isBday ? 'Unset birthday' : 'Set as birthday'}</button>
           <button class="btn tiny danger" data-act="del">Delete</button>
@@ -252,11 +264,37 @@
           .then(() => toast('Renamed')).catch(e => toast(e.message, true)));
       label.addEventListener('keydown', e => { if (e.key === 'Enter') label.blur(); });
 
+      const durInput = card.querySelector('.m-dur');
+      if (durInput) durInput.addEventListener('change', () =>
+        api(`/api/media/${m.id}`, { method: 'PATCH', body: JSON.stringify({ durationSec: parseFloat(durInput.value) }) })
+          .then(() => toast('Slide timing updated')).catch(e => toast(e.message, true)));
+
       card.querySelector('[data-act="preview"]').addEventListener('click', () => {
         $('previewTitle').textContent = m.label;
-        $('previewVideo').src = m.url;
+        const v = $('previewVideo'), img = $('previewImage');
+        if (m.type === 'image') {
+          v.classList.add('hidden'); img.classList.remove('hidden');
+          img.src = m.url;
+        } else {
+          img.classList.add('hidden'); v.classList.remove('hidden');
+          v.src = m.url;
+          v.play().catch(() => {});
+        }
         $('previewModal').classList.remove('hidden');
-        $('previewVideo').play().catch(() => {});
+      });
+
+      const canvaBtn = card.querySelector('[data-act="canva"]');
+      if (canvaBtn) canvaBtn.addEventListener('click', () => {
+        // Canva's cloud can't reach this LAN server, so: download the photo
+        // locally, open Canva, and the user drops the file straight in.
+        const a = document.createElement('a');
+        a.href = m.url;
+        a.download = m.originalName || (m.label + '.png');
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.open('https://www.canva.com/create/', '_blank');
+        toast('Photo downloaded — drop it into the Canva tab to keep editing. Upload the finished design back here.');
       });
 
       card.querySelector('[data-act="all"]').addEventListener('click', () => {
@@ -310,6 +348,187 @@
         api(`/api/events/${ev.id}`, { method: 'DELETE' }).catch(e => toast(e.message, true)));
       rows.appendChild(tr);
     }
+  }
+
+  // ---------- playlists ----------
+  function renderPlaylists() {
+    const list = $('playlistList');
+    list.innerHTML = '';
+    const playlists = state.playlists || [];
+    if (playlists.length === 0) {
+      list.innerHTML = '<p class="hint">No playlists yet. Create one, add a mix of videos and photos, then assign it to your TVs.</p>';
+      return;
+    }
+    for (const p of playlists) {
+      const enabled = p.items.filter(it => it.enabled !== false).length;
+      const card = document.createElement('div');
+      card.className = 'pl-card';
+      const thumbs = p.items.slice(0, 4).map(it => {
+        const m = state.media.find(x => x.id === it.mediaId);
+        return m ? thumbHtml(m, 'row-thumb') : '';
+      }).join('');
+      card.innerHTML = `
+        <div class="pl-name">📋 ${esc(p.name)}</div>
+        <div style="display:flex;gap:6px">${thumbs}</div>
+        <div class="m-meta">${enabled} of ${p.items.length} slide${p.items.length === 1 ? '' : 's'} playing ·
+          ${p.transition === 'fade' ? 'fade transition' : 'no transition'} · on ${p.usedBy} TV${p.usedBy === 1 ? '' : 's'}</div>
+        <div class="m-actions">
+          <button class="btn tiny" data-act="edit">✏ Edit</button>
+          <button class="btn tiny" data-act="all">Apply to ALL TVs</button>
+          <button class="btn tiny danger" data-act="del">Delete</button>
+        </div>`;
+      card.querySelector('[data-act="edit"]').addEventListener('click', () => openPlaylistModal(p));
+      card.querySelector('[data-act="all"]').addEventListener('click', () => {
+        if (!confirm(`Play "${p.name}" on every TV?`)) return;
+        api(`/api/playlists/${p.id}/assign-all`, { method: 'POST' })
+          .then(() => toast(`"${p.name}" is now on all TVs`)).catch(e => toast(e.message, true));
+      });
+      card.querySelector('[data-act="del"]').addEventListener('click', () => {
+        if (!confirm(`Delete playlist "${p.name}"? TVs using it fall back to their custom selection.`)) return;
+        api(`/api/playlists/${p.id}`, { method: 'DELETE' }).then(() => toast('Playlist deleted')).catch(e => toast(e.message, true));
+      });
+      list.appendChild(card);
+    }
+  }
+
+  // Playlist editor: works on a local copy of items until Save Changes.
+  let plEditing = { id: null, items: [] };
+
+  function renderPlRows() {
+    const box = $('plRows');
+    box.innerHTML = '';
+    if (plEditing.items.length === 0) {
+      box.innerHTML = '<p class="hint">No slides yet — click “+ Add media”.</p>';
+      return;
+    }
+    plEditing.items.forEach((it, idx) => {
+      const m = state.media.find(x => x.id === it.mediaId);
+      if (!m) return;
+      const row = document.createElement('div');
+      row.className = 'pl-row' + (it.enabled === false ? ' disabled' : '');
+      row.innerHTML = `
+        ${thumbHtml(m, 'row-thumb')}
+        <span class="row-name">${esc(m.label)}</span>
+        <label class="switch" title="Play this slide">
+          <input type="checkbox" ${it.enabled !== false ? 'checked' : ''}>
+          <span class="knob"></span>
+        </label>
+        <span class="row-timing">${m.type === 'image'
+          ? `<input type="number" value="${it.durationSec || m.durationSec || 8}" min="1" max="3600"> s`
+          : 'full video'}</span>
+        <span class="row-actions">
+          <button class="btn tiny" data-act="up" ${idx === 0 ? 'disabled' : ''}>↑</button>
+          <button class="btn tiny" data-act="down" ${idx === plEditing.items.length - 1 ? 'disabled' : ''}>↓</button>
+          <button class="btn tiny danger" data-act="rm">✕</button>
+        </span>`;
+      row.querySelector('.switch input').addEventListener('change', e => {
+        it.enabled = e.target.checked;
+        row.classList.toggle('disabled', !it.enabled);
+      });
+      const timing = row.querySelector('.row-timing input');
+      if (timing) timing.addEventListener('change', () => { it.durationSec = parseFloat(timing.value) || 8; });
+      row.querySelector('[data-act="up"]').addEventListener('click', () => {
+        plEditing.items.splice(idx - 1, 0, plEditing.items.splice(idx, 1)[0]);
+        renderPlRows();
+      });
+      row.querySelector('[data-act="down"]').addEventListener('click', () => {
+        plEditing.items.splice(idx + 1, 0, plEditing.items.splice(idx, 1)[0]);
+        renderPlRows();
+      });
+      row.querySelector('[data-act="rm"]').addEventListener('click', () => {
+        plEditing.items.splice(idx, 1);
+        renderPlRows();
+      });
+      box.appendChild(row);
+    });
+  }
+
+  function openPlaylistModal(p) {
+    plEditing = p
+      ? { id: p.id, items: p.items.map(it => ({ ...it })) }
+      : { id: null, items: [] };
+    $('playlistModalTitle').textContent = p ? 'Edit Playlist' : 'New Playlist';
+    $('plName').value = p ? p.name : '';
+    document.querySelectorAll('[name="plTransition"]').forEach(r => {
+      r.checked = r.value === ((p && p.transition) || 'none');
+    });
+    $('playlistError').textContent = '';
+    renderPlRows();
+    $('playlistModal').classList.remove('hidden');
+  }
+
+  $('addPlaylistBtn').addEventListener('click', () => openPlaylistModal(null));
+  $('playlistCancel').addEventListener('click', () => $('playlistModal').classList.add('hidden'));
+
+  $('plAddMedia').addEventListener('click', () => {
+    const list = $('plMediaList');
+    list.innerHTML = state.media.length ? '' : '<p class="hint">Upload media first.</p>';
+    for (const m of state.media) {
+      const item = document.createElement('div');
+      item.className = 'picker-item';
+      item.innerHTML = `${thumbHtml(m, 'row-thumb')}<span class="p-label">${esc(m.label)}</span>
+        <span class="hint">${m.type === 'image' ? 'photo' : 'video'}</span>`;
+      item.addEventListener('click', () => {
+        plEditing.items.push({ mediaId: m.id, enabled: true, durationSec: m.durationSec || 8 });
+        renderPlRows();
+        toast(`Added "${m.label}"`);
+      });
+      list.appendChild(item);
+    }
+    $('plMediaModal').classList.remove('hidden');
+  });
+  $('plMediaClose').addEventListener('click', () => $('plMediaModal').classList.add('hidden'));
+
+  $('playlistSave').addEventListener('click', async () => {
+    try {
+      await api('/api/playlists', {
+        method: 'POST',
+        body: JSON.stringify({
+          id: plEditing.id,
+          name: $('plName').value,
+          transition: document.querySelector('[name="plTransition"]:checked')?.value || 'none',
+          items: plEditing.items
+        })
+      });
+      $('playlistModal').classList.add('hidden');
+      toast('Playlist saved');
+    } catch (err) { $('playlistError').textContent = err.message; }
+  });
+
+  // ---------- TV content picker (playlist or custom selection) ----------
+  function openContentModal(tv) {
+    $('contentTitle').textContent = `Content for ${tv.name}`;
+    const list = $('contentList');
+    list.innerHTML = '';
+    let choice = tv.playlistId || 'custom';
+    const options = (state.playlists || []).map(p => ({
+      value: p.id, label: `📋 ${p.name}`, hint: `${p.items.length} slides`
+    }));
+    options.push({ value: 'custom', label: '🎛 Custom selection…', hint: 'pick individual media for just this TV' });
+    for (const opt of options) {
+      const row = document.createElement('label');
+      row.className = 'radio-row';
+      row.innerHTML = `
+        <input type="radio" name="tvContent" value="${esc(opt.value)}" ${choice === opt.value ? 'checked' : ''}>
+        <span class="r-label">${esc(opt.label)}</span>
+        <span class="hint">${esc(opt.hint)}</span>`;
+      row.querySelector('input').addEventListener('change', () => { choice = opt.value; });
+      list.appendChild(row);
+    }
+    const save = async () => {
+      $('contentModal').classList.add('hidden');
+      if (choice === 'custom') {
+        openPicker(`Custom selection for ${tv.name}`, tv.assignedMediaIds, ids =>
+          api(`/api/tvs/${tv.id}/assign`, { method: 'POST', body: JSON.stringify({ mediaIds: ids }) })
+            .then(() => toast(`Updated ${tv.name}`)).catch(e => toast(e.message, true)));
+      } else {
+        await api(`/api/tvs/${tv.id}/playlist`, { method: 'POST', body: JSON.stringify({ playlistId: choice }) })
+          .then(() => toast(`${tv.name} now plays that playlist`)).catch(e => toast(e.message, true));
+      }
+    };
+    $('contentSave').onclick = save;
+    $('contentCancel').onclick = () => $('contentModal').classList.add('hidden');
+    $('contentModal').classList.remove('hidden');
   }
 
   // ---------- custom themes ----------
@@ -447,8 +666,8 @@
   let uploadActive = false, uploadDone = 0, uploadFailed = [];
 
   function uploadFiles(files) {
-    const accepted = [...files].filter(f => /\.(mp4|m4v|webm|mov)$/i.test(f.name));
-    if (accepted.length === 0) { toast('Only .mp4, .m4v, .webm or .mov files', true); return; }
+    const accepted = [...files].filter(f => /\.(mp4|m4v|webm|mov|jpg|jpeg|png|gif|webp)$/i.test(f.name));
+    if (accepted.length === 0) { toast('Accepted: video (.mp4, .webm, .mov) or photos (.jpg, .png, .gif, .webp)', true); return; }
     uploadQueue.push(...accepted);
     if (!uploadActive) { uploadActive = true; uploadDone = 0; uploadFailed = []; uploadNext(); }
   }
@@ -573,6 +792,7 @@
     $('previewVideo').pause();
     $('previewVideo').removeAttribute('src');
     $('previewVideo').load();
+    $('previewImage').removeAttribute('src');
     $('previewModal').classList.add('hidden');
   });
 

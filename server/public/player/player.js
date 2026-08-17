@@ -27,10 +27,25 @@
   let playlist = [];          // [{id,label,url}]
   let playlistKey = '';
   let current = 0;            // index in playlist
-  let activeVideo = videoA, standbyVideo = videoB;
+  const imageA = document.getElementById('imageA');
+  const imageB = document.getElementById('imageB');
+  const slotA = { video: videoA, image: imageA };
+  const slotB = { video: videoB, image: imageB };
+  let activeSlot = slotA, standbySlot = slotB;
+  let imageTimer = null;      // advances image slides after their duration
+  let transitionMode = 'none';
   let overrideTimer = null;
   let errorStreak = 0;        // consecutive unplayable items
   let errorRetryTimer = null;
+
+  function clearSlotHandlers(slot) {
+    slot.video.onended = slot.video.onerror = slot.video.onplaying = null;
+    slot.image.onerror = slot.image.onload = null;
+  }
+  function hideSlot(slot) {
+    slot.video.classList.remove('visible');
+    slot.image.classList.remove('visible');
+  }
 
   for (const v of [videoA, videoB, overrideVideo]) v.muted = !AUDIO;
 
@@ -98,9 +113,9 @@
     off.classList.toggle('visible', layer === 'off');
     overrideEl.classList.toggle('visible', layer === 'override');
     if (layer !== 'playlist') {
-      videoA.classList.remove('visible');
-      videoB.classList.remove('visible');
-      if (layer !== 'override') stopVideos();
+      hideSlot(slotA);
+      hideSlot(slotB);
+      stopPlayback();
     }
     if (layer !== 'override') {
       overrideVideo.onerror = null;
@@ -111,8 +126,10 @@
     }
   }
 
-  function stopVideos() {
-    for (const v of [videoA, videoB]) { v.pause(); }
+  function stopPlayback() {
+    clearTimeout(imageTimer);
+    imageTimer = null;
+    for (const s of [slotA, slotB]) s.video.pause();
   }
 
   function applyState(msg) {
@@ -138,16 +155,21 @@
     }
     clearTimeout(overrideTimer);
     overrideTimer = null;
+    transitionMode = msg.transition === 'fade' ? 'fade' : 'none';
+    document.body.dataset.transition = transitionMode;
     setPlaylist(msg.playlist || []);
     reportStatus();
   }
 
-  // --- playlist playback (two stacked videos, preload next) --------------
+  // --- playlist playback --------------------------------------------------
+  // Two stacked "slots" (each a video element + an image element). The active
+  // slot shows the current item; the standby slot preloads the next one, so
+  // item changes are instant — or a crossfade when the playlist uses fade.
   function setPlaylist(list) {
-    const key = JSON.stringify(list.map(x => x.url));
+    const key = JSON.stringify(list.map(x => [x.url, x.type, x.durationSec])) + '|' + transitionMode;
     if (key === playlistKey && !overrideEl.classList.contains('visible') && !off.classList.contains('visible')) {
-      // Same playlist, already playing — don't restart mid-video.
-      if (list.length > 0) { show('playlist'); resume(); return; }
+      // Same playlist, already playing — don't restart mid-item.
+      if (list.length > 0) { playlist = list; show('playlist'); resume(); return; }
     }
     playlistKey = key;
     playlist = list;
@@ -159,11 +181,19 @@
 
   function resume() {
     if (playlist.length === 0) { show('idle'); return; }
-    if (activeVideo.paused && activeVideo.src) {
-      activeVideo.play().catch(() => {});
-      activeVideo.classList.add('visible');
-    } else if (!activeVideo.src) {
-      startCurrent();
+    const item = playlist[current];
+    if (!item) { current = 0; startCurrent(); return; }
+    if (item.type === 'image') {
+      if (activeSlot.image.src) {
+        activeSlot.image.classList.add('visible');
+        clearTimeout(imageTimer);
+        if (playlist.length > 1) imageTimer = setTimeout(next, (item.durationSec || 8) * 1000);
+      } else startCurrent();
+    } else {
+      if (activeSlot.video.src) {
+        activeSlot.video.classList.add('visible');
+        activeSlot.video.play().catch(() => {});
+      } else startCurrent();
     }
   }
 
@@ -172,21 +202,41 @@
     if (!item) { show('idle'); return; }
     clearTimeout(errorRetryTimer);
     errorRetryTimer = null;
-    // The standby element keeps handlers from its last active stint; a
-    // preload failure there must not be mistaken for the ACTIVE item failing.
-    standbyVideo.onended = standbyVideo.onerror = standbyVideo.onplaying = null;
-    activeVideo.onended = null;
-    activeVideo.src = item.url;
-    activeVideo.loop = playlist.length === 1;
-    activeVideo.classList.add('visible');
-    standbyVideo.classList.remove('visible');
-    activeVideo.play().catch(() => {
-      // Autoplay refused or file unreadable: retry shortly, skip after repeated failures.
-      setTimeout(() => activeVideo.play().catch(() => onItemError()), 2000);
-    });
-    activeVideo.onplaying = () => { errorStreak = 0; };
-    activeVideo.onended = next;
-    activeVideo.onerror = onItemError;
+    clearTimeout(imageTimer);
+    imageTimer = null;
+    // The standby slot keeps handlers from its last active stint; a preload
+    // failure there must not be mistaken for the ACTIVE item failing.
+    clearSlotHandlers(standbySlot);
+    clearSlotHandlers(activeSlot);
+    hideSlot(standbySlot);
+    standbySlot.video.pause();
+    const slot = activeSlot;
+
+    if (item.type === 'image') {
+      slot.video.pause();
+      slot.video.classList.remove('visible');
+      const armed = () => {
+        slot.image.classList.add('visible');
+        errorStreak = 0;
+        if (playlist.length > 1) imageTimer = setTimeout(next, (item.durationSec || 8) * 1000);
+      };
+      slot.image.onerror = onItemError;
+      const abs = new URL(item.url, location.href).href;
+      if (slot.image.src === abs && slot.image.complete && slot.image.naturalWidth > 0) armed();
+      else { slot.image.onload = armed; slot.image.src = item.url; }
+    } else {
+      slot.image.classList.remove('visible');
+      slot.video.src = item.url;
+      slot.video.loop = playlist.length === 1;
+      slot.video.classList.add('visible');
+      slot.video.play().catch(() => {
+        // Autoplay refused or file unreadable: retry shortly, skip after repeated failures.
+        setTimeout(() => slot.video.play().catch(() => onItemError()), 2000);
+      });
+      slot.video.onplaying = () => { errorStreak = 0; };
+      slot.video.onended = next;
+      slot.video.onerror = onItemError;
+    }
     preloadNext();
     reportStatus();
   }
@@ -216,18 +266,23 @@
   function preloadNext() {
     if (playlist.length < 2) return;
     const nextItem = playlist[(current + 1) % playlist.length];
-    if (standbyVideo.src !== new URL(nextItem.url, location.href).href) {
-      standbyVideo.src = nextItem.url;
-      standbyVideo.load();
+    const abs = new URL(nextItem.url, location.href).href;
+    if (nextItem.type === 'image') {
+      if (standbySlot.image.src !== abs) standbySlot.image.src = nextItem.url;
+    } else if (standbySlot.video.src !== abs) {
+      standbySlot.video.src = nextItem.url;
+      standbySlot.video.load();
     }
   }
 
   function next() {
+    clearTimeout(imageTimer);
+    imageTimer = null;
     if (playlist.length === 0) { show('idle'); return; }
     current = (current + 1) % playlist.length;
     if (playlist.length >= 2) {
-      // Swap layers: standby already has the next item preloaded.
-      const t = activeVideo; activeVideo = standbyVideo; standbyVideo = t;
+      // Swap slots: standby already has the next item preloaded.
+      const t = activeSlot; activeSlot = standbySlot; standbySlot = t;
     }
     startCurrent();
   }
@@ -290,7 +345,7 @@
     } else {
       overrideEl.classList.remove('has-video');
     }
-    stopVideos();
+    stopPlayback();
     show('override');
     BirthdayScene.start(canvas, o.theme || 'party', videoBehind, o.themeSpec);
 
