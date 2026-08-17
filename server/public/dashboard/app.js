@@ -135,10 +135,21 @@
     $('tvCount').textContent = state.tvs.length;
     $('mediaCount').textContent = state.media.length;
     $('eventCount').textContent = state.events.filter(e => e.status !== 'done').length;
+    $('themeCount').textContent = 5 + (state.settings.customThemes || []).length;
     $('dayState').textContent = state.settings.dayStarted ? 'Day running' : 'Day ended — screens off';
     renderTvs();
     renderMedia();
     renderEvents();
+    renderThemes();
+  }
+
+  function themeDisplayName(key) {
+    if (!key) return 'party';
+    if (key.startsWith('custom:')) {
+      const ct = (state.settings.customThemes || []).find(c => `custom:${c.id}` === key);
+      return ct ? ct.name : 'party';
+    }
+    return key;
   }
 
   function renderTvs() {
@@ -193,7 +204,8 @@
       card.querySelector('[data-act="bday"]').addEventListener('click', () => {
         const name = prompt('Name to show (1-minute test):', 'Aiden');
         if (!name) return;
-        const theme = prompt('Theme: party / superhero / princess / space / ninja', 'party') || 'party';
+        const customNames = (state.settings.customThemes || []).map(c => c.name);
+        const theme = prompt('Theme: ' + ['party', 'superhero', 'princess', 'space', 'ninja'].concat(customNames).join(' / '), 'party') || 'party';
         api(`/api/tvs/${tv.id}/test-birthday`, { method: 'POST', body: JSON.stringify({ name, theme, durationMin: 1 }) })
           .then(() => toast('Birthday test running')).catch(e => toast(e.message, true));
       });
@@ -283,7 +295,7 @@
         <td><strong>${esc(ev.name)}</strong></td>
         <td>${esc(ev.message || `Happy Birthday, ${ev.name}!`)}</td>
         <td>${ev.durationMin} min</td>
-        <td>${themeIcons[ev.theme] || '🎉'} ${esc(ev.theme || 'party')}</td>
+        <td>${themeIcons[ev.theme] || '🎨'} ${esc(themeDisplayName(ev.theme))}</td>
         <td>${esc(ev.mediaLabel || '—')}</td>
         <td><span class="status-tag ${ev.status}">${ev.status.toUpperCase()}</span></td>
         <td style="white-space:nowrap">
@@ -299,6 +311,86 @@
       rows.appendChild(tr);
     }
   }
+
+  // ---------- custom themes ----------
+  function renderThemes() {
+    const list = $('themeList');
+    list.innerHTML = '';
+    const themes = state.settings.customThemes || [];
+    if (themes.length === 0) {
+      list.innerHTML = '<p class="hint">No custom themes yet. Click “+ New theme” — pick colors, type some emojis, done.</p>';
+      return;
+    }
+    for (const th of themes) {
+      const card = document.createElement('div');
+      card.className = 'media-card';
+      const swatches = [...th.bg, th.headline.fill, th.headline.stroke]
+        .map(c => `<span class="sw" style="background:${esc(c)}"></span>`).join('');
+      card.innerHTML = `
+        <strong>🎨 ${esc(th.name)}</strong>
+        <div class="theme-swatches">${swatches}</div>
+        <div class="theme-emojis">${esc(th.emojis || '')}</div>
+        <div class="m-meta">${(th.elements || []).join(', ') || 'no extra effects'}</div>
+        <div class="m-actions">
+          <button class="btn tiny" data-act="edit">Edit</button>
+          <button class="btn tiny danger" data-act="del">Delete</button>
+        </div>`;
+      card.querySelector('[data-act="edit"]').addEventListener('click', () => openThemeModal(th));
+      card.querySelector('[data-act="del"]').addEventListener('click', () => {
+        if (!confirm(`Delete theme "${th.name}"? Events using it switch to the party theme.`)) return;
+        api(`/api/themes/${th.id}`, { method: 'DELETE' }).then(() => toast('Theme deleted')).catch(e => toast(e.message, true));
+      });
+      list.appendChild(card);
+    }
+  }
+
+  let editingThemeId = null;
+  function openThemeModal(th) {
+    editingThemeId = th ? th.id : null;
+    $('themeModalTitle').textContent = th ? `Edit "${th.name}"` : 'New theme';
+    $('thName').value = th ? th.name : '';
+    $('thBg1').value = th ? th.bg[0] : '#1d7a3e';
+    $('thBg2').value = th ? (th.bg[1] || th.bg[0]) : '#0b3d20';
+    $('thFill').value = th ? th.headline.fill : '#ffffff';
+    $('thStroke').value = th ? th.headline.stroke : '#1d7a3e';
+    const conf = th ? th.confetti : [];
+    $('thC1').value = conf[0] || '#ffffff';
+    $('thC2').value = conf[1] || '#ffd93b';
+    $('thC3').value = conf[2] || '#2ecc71';
+    $('thEmojis').value = th ? (th.emojis || '') : '';
+    const els = th ? (th.elements || []) : [];
+    $('thSparkles').checked = els.includes('sparkles');
+    $('thBalloons').checked = els.includes('balloons');
+    $('thDots').checked = els.includes('dots');
+    $('thBursts').checked = els.includes('bursts');
+    $('themeError').textContent = '';
+    $('themeModal').classList.remove('hidden');
+  }
+  $('addThemeBtn').addEventListener('click', () => openThemeModal(null));
+  $('themeCancel').addEventListener('click', () => $('themeModal').classList.add('hidden'));
+  $('themeSave').addEventListener('click', async () => {
+    const elements = [];
+    if ($('thSparkles').checked) elements.push('sparkles');
+    if ($('thBalloons').checked) elements.push('balloons');
+    if ($('thDots').checked) elements.push('dots');
+    if ($('thBursts').checked) elements.push('bursts');
+    try {
+      await api('/api/themes', {
+        method: 'POST',
+        body: JSON.stringify({
+          id: editingThemeId,
+          name: $('thName').value,
+          bg: [$('thBg1').value, $('thBg2').value],
+          headline: { fill: $('thFill').value, stroke: $('thStroke').value },
+          confetti: [$('thC1').value, $('thC2').value, $('thC3').value],
+          emojis: $('thEmojis').value,
+          elements
+        })
+      });
+      $('themeModal').classList.add('hidden');
+      toast('Theme saved — try it with 🎂 Test on any TV');
+    } catch (err) { $('themeError').textContent = err.message; }
+  });
 
   // ---------- media picker modal ----------
   let pickerSave = null;
@@ -432,6 +524,14 @@
   $('addEventBtn').addEventListener('click', () => {
     const tvSel = $('evTv');
     tvSel.innerHTML = state.tvs.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('');
+    const customOpts = (state.settings.customThemes || [])
+      .map(c => `<option value="custom:${c.id}">🎨 ${esc(c.name)}</option>`).join('');
+    $('evTheme').innerHTML = `
+      <option value="party">🎉 Party (default)</option>
+      <option value="superhero">🦸 Superhero</option>
+      <option value="princess">👑 Princess</option>
+      <option value="space">🚀 Space</option>
+      <option value="ninja">🥷 Ninja</option>` + customOpts;
     const mediaSel = $('evMedia');
     mediaSel.innerHTML = '<option value="">Use the theme above</option>' +
       state.media.map(m => `<option value="${esc(m.label)}">${esc(m.label)}</option>`).join('');

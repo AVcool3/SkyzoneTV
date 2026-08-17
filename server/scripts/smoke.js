@@ -157,6 +157,37 @@ const run = async () => {
   state = (await api(token, 'GET', '/api/state')).data;
   check('power off works', state.tvs.find(t => t.id === tvId)?.power === 'off');
 
+  // Custom themes: create, use by name in CSV and test, delete falls back.
+  const themeRes = await api(token, 'POST', '/api/themes', {
+    name: 'Smoke Soccer', bg: ['#1d7a3e', '#0b3d20'],
+    headline: { fill: '#ffffff', stroke: '#1d7a3e' },
+    confetti: ['#ffffff', '#ffd93b'], emojis: '⚽🏆', elements: ['sparkles']
+  });
+  check('custom theme created', themeRes.status === 200 && themeRes.data.theme?.id);
+  const customId = themeRes.data.theme.id;
+  const dupe = await api(token, 'POST', '/api/themes', {
+    name: 'smoke-soccer', bg: ['#111111', '#222222'], headline: { fill: '#ffffff', stroke: '#000000' }
+  });
+  check('duplicate theme name rejected', dupe.status === 400);
+  const builtinClash = await api(token, 'POST', '/api/themes', {
+    name: 'Ninja', bg: ['#111111', '#222222'], headline: { fill: '#ffffff', stroke: '#000000' }
+  });
+  check('built-in theme name rejected', builtinClash.status === 400);
+
+  const customCsv = await uploadCsv('date,time,tv,name,theme\n2099-01-03,10:00,Smoke Room 1,SoccerKid,smoke soccer\n');
+  check('csv resolves custom theme by name', customCsv.imported === 1 && customCsv.errors.length === 0);
+  state = (await api(token, 'GET', '/api/state')).data;
+  check('csv event stores custom theme id', state.events.find(e => e.name === 'SoccerKid')?.theme === `custom:${customId}`);
+
+  await api(token, 'POST', `/api/tvs/${tvId}/test-birthday`, { name: 'Zed', theme: 'Smoke Soccer', durationMin: 1 });
+  state = (await api(token, 'GET', '/api/state')).data;
+  check('test accepts custom theme name', state.tvs.find(t => t.id === tvId)?.override?.name === 'Zed');
+  await api(token, 'POST', `/api/tvs/${tvId}/clear-override`);
+
+  await api(token, 'DELETE', `/api/themes/${customId}`);
+  state = (await api(token, 'GET', '/api/state')).data;
+  check('deleting theme reverts its events to party', state.events.find(e => e.name === 'SoccerKid')?.theme === 'party');
+
   // A takeover on a powered-off TV wakes the screen, then re-blanks it after.
   await api(token, 'POST', `/api/tvs/${tvId}/test-birthday`, { name: 'WakeKid', durationMin: 1 });
   state = (await api(token, 'GET', '/api/state')).data;

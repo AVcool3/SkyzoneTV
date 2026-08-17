@@ -383,6 +383,87 @@
     }
   };
 
+  // ---- custom (user-built) themes ----------------------------------------
+  // spec: { bg: [c1, c2, c3?], confetti: [...], emojis: '⚽🏆', elements: ['sparkles'|'balloons'|'dots'|'bursts'] }
+  let customSpec = null;
+
+  function drawCustom(t) {
+    const spec = customSpec || {};
+    const bg = (spec.bg && spec.bg.length >= 2) ? spec.bg : ['#4a2bd9', '#d92b6a'];
+    vGradient(bg.map((c, i) => [i / (bg.length - 1), c]));
+    const els = spec.elements || [];
+
+    if (els.includes('dots')) {
+      ctx.save();
+      ctx.globalAlpha = 0.10; ctx.fillStyle = '#fff';
+      const step = M / 7;
+      for (let y = -step; y < H + step; y += step) {
+        for (let x = -step; x < W + step; x += step) {
+          const dx = Math.sin(t * 0.4 + y) * step * 0.15;
+          ctx.beginPath(); ctx.arc(x + dx, y, step * 0.16, 0, 7); ctx.fill();
+        }
+      }
+      ctx.restore();
+    }
+
+    if (els.includes('sparkles')) {
+      const r = rng(7);
+      for (let i = 0; i < 40; i++) {
+        const x = r() * W, y = r() * H, ph = r() * 7;
+        const a = 0.25 + 0.75 * Math.abs(Math.sin(t * 1.6 + ph));
+        star4(x, y, M * (0.006 + r() * 0.009), t * 0.4 + ph, i % 3 ? '#fff' : '#ffd93b', a);
+      }
+    }
+
+    if (els.includes('balloons')) {
+      const r = rng(42);
+      for (let i = 0; i < 7; i++) {
+        const bx = (0.08 + r() * 0.84) * W + Math.sin(t * 0.8 + i * 2) * M * 0.02;
+        const speed = 0.05 + r() * 0.05;
+        const by = H * 1.15 - (((t * speed + r()) % 1.3) * H * 1.3);
+        const col = `hsl(${(r() * 360) | 0}, 80%, 62%)`;
+        const rx = M * (0.035 + r() * 0.012), ry = rx * 1.22;
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(bx, by + ry);
+        ctx.quadraticCurveTo(bx + M * 0.015, by + ry + M * 0.05, bx, by + ry + M * 0.1);
+        ctx.stroke();
+        ctx.fillStyle = col;
+        ctx.beginPath(); ctx.ellipse(bx, by, rx, ry, 0, 0, 7); ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(bx, by + ry); ctx.lineTo(bx - 6, by + ry + 9); ctx.lineTo(bx + 6, by + ry + 9);
+        ctx.closePath(); ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    if (els.includes('bursts')) {
+      starburst(W * 0.12, H * 0.22, M * 0.055, t * 2.2);
+      starburst(W * 0.88, H * 0.18, M * 0.045, t * 2.2 + Math.PI);
+    }
+
+    // floating emojis — the free-form part: ⚽ 🦖 🎮 whatever the theme needs
+    const emojis = [...(spec.emojis || '')];
+    if (emojis.length > 0) {
+      const r = rng(555);
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      for (let i = 0; i < 12; i++) {
+        const em = emojis[i % emojis.length];
+        const speed = 0.045 + r() * 0.05;
+        const ey = H * 1.12 - (((t * speed + r()) % 1.25) * H * 1.25);
+        const ex = (0.06 + r() * 0.88) * W + Math.sin(t * 0.9 + i * 2.3) * M * 0.025;
+        const size = M * (0.05 + r() * 0.045);
+        const rot = Math.sin(t * 0.7 + i) * 0.25;
+        ctx.save();
+        ctx.translate(ex, ey); ctx.rotate(rot);
+        ctx.font = `${size}px serif`;
+        ctx.fillText(em, 0, 0);
+        ctx.restore();
+      }
+    }
+  }
+
   function buildConfetti(colors) {
     confetti = Array.from({ length: 120 }, () => ({
       x: Math.random() * W, y: Math.random() * -H,
@@ -396,8 +477,10 @@
   function frame(now) {
     const t = (now - t0) / 1000;
     ctx.clearRect(0, 0, W, H);
-    const theme = THEMES[themeKey] || THEMES.party;
-    if (!hasVideo) theme.draw(t);
+    if (!hasVideo) {
+      if (themeKey === 'custom') drawCustom(t);
+      else (THEMES[themeKey] || THEMES.party).draw(t);
+    }
     for (const c of confetti) {
       c.y += c.vy; c.x += c.vx + Math.sin(c.y / 40) * 0.6; c.rot += c.vrot;
       if (c.y > H + 20) { c.y = -20; c.x = Math.random() * W; }
@@ -418,16 +501,22 @@
   }
 
   window.BirthdayScene = {
-    start(cnv, theme, videoBehind) {
-      const key = THEMES[theme] ? theme : 'party';
-      if (raf && canvas === cnv && themeKey === key && hasVideo === !!videoBehind) return;
+    start(cnv, theme, videoBehind, spec) {
+      const key = theme === 'custom' && spec ? 'custom' : (THEMES[theme] ? theme : 'party');
+      const specJson = key === 'custom' ? JSON.stringify(spec) : null;
+      if (raf && canvas === cnv && themeKey === key && hasVideo === !!videoBehind &&
+          specJson === (customSpec ? JSON.stringify(customSpec) : null)) return;
       this.stop();
       canvas = cnv;
       ctx = canvas.getContext('2d');
       themeKey = key;
+      customSpec = key === 'custom' ? spec : null;
       hasVideo = !!videoBehind;
       resize();
-      buildConfetti((THEMES[key] || THEMES.party).confetti);
+      const colors = key === 'custom'
+        ? (spec.confetti && spec.confetti.length ? spec.confetti : THEMES.party.confetti)
+        : (THEMES[key] || THEMES.party).confetti;
+      buildConfetti(colors);
       t0 = performance.now();
       raf = requestAnimationFrame(frame);
     },

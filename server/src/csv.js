@@ -108,8 +108,19 @@ export function normalizeTheme(value) {
   return THEME_SYNONYMS[v] || null;
 }
 
+// Resolve a theme input (CSV cell, form value, API param) against built-ins
+// AND the user's custom themes. Custom themes match by id or by name and
+// resolve to 'custom:<id>'. Returns null when nothing matches.
+export function resolveTheme(value, customThemes = []) {
+  const builtin = normalizeTheme(value);
+  if (builtin) return builtin;
+  const v = normalizeLabel(value);
+  const ct = customThemes.find(c => c.id === value || `custom:${c.id}` === value || normalizeLabel(c.name) === v);
+  return ct ? `custom:${ct.id}` : null;
+}
+
 // Returns { events: [...], errors: [{line, error}] }
-export function parseEventsCsv(text, tvs, media) {
+export function parseEventsCsv(text, tvs, media, customThemes = []) {
   const rows = parseCsv(text);
   if (rows.length === 0) return { events: [], errors: [{ line: 0, error: 'Empty file' }] };
 
@@ -161,9 +172,10 @@ export function parseEventsCsv(text, tvs, media) {
     if (!Number.isFinite(durationMin) || durationMin <= 0) durationMin = 5;
     durationMin = Math.min(durationMin, 240);
 
-    let theme = normalizeTheme(get(iTheme));
+    let theme = resolveTheme(get(iTheme), customThemes);
     if (theme === null) {
-      errors.push({ line, error: `Unknown theme "${get(iTheme)}" — using "party" (options: ${THEMES.join(', ')})` });
+      const options = THEMES.concat(customThemes.map(c => c.name)).join(', ');
+      errors.push({ line, error: `Unknown theme "${get(iTheme)}" — using "party" (options: ${options})` });
       theme = 'party';
     }
 

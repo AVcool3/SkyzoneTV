@@ -19,7 +19,7 @@ date,time,tv,name,message,duration,theme,media
 | `name` | yes | text | Shown on screen: "Happy Birthday, *Name*!" |
 | `message` | no | text | Replaces the default headline entirely (e.g. "Happy 8th Birthday Maya!"). |
 | `duration` | no | minutes | How long the takeover lasts. Default **5**. |
-| `theme` | no | `party`, `superhero`, `princess`, `space`, `ninja` | Which built-in animated birthday screen to use. Blank = `party`. Synonyms work (`hero`, `galaxy`, `royal`, …); unknown values are flagged and fall back to `party`. |
+| `theme` | no | `party`, `superhero`, `princess`, `space`, `ninja`, or the name of any custom theme you built in the dashboard's **Themes** tab | Which animated birthday screen to use. Blank = `party`. Synonyms work for the built-ins (`hero`, `galaxy`, `royal`, …); unknown values are flagged and fall back to `party`. |
 | `media` | no | media label | A media label from your library to play full-screen as the background (e.g. licensed character content you have rights to). Takes priority over `theme`. Blank = the library's **Set as birthday** video if one is set, otherwise the theme's animated screen. |
 
 Header aliases are accepted (`room` for `tv`, `start` for `time`,

@@ -172,6 +172,19 @@ tr:last-child td { border-bottom: none; }
 .picker-item.checked .order { display: inline-flex; }
 .picker-item .p-label { flex: 1; }
 
+/* ---- Themes ---- */
+.theme-h { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; margin: 14px 0 8px; }
+.theme-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.theme-chip { background: var(--panel2); border: 1px solid var(--border); border-radius: 999px; padding: 5px 14px; font-size: 13px; font-weight: 600; }
+.color-row { display: flex; gap: 8px; }
+.color-row input[type="color"] { width: 46px; height: 34px; padding: 2px; cursor: pointer; }
+.check-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.check { display: flex; flex-direction: row !important; align-items: center; gap: 6px; color: var(--text) !important; font-size: 14px !important; }
+.check input { width: auto; }
+.theme-swatches { display: flex; gap: 4px; align-items: center; }
+.theme-swatches .sw { width: 20px; height: 20px; border-radius: 5px; border: 1px solid var(--border); }
+.theme-emojis { font-size: 20px; min-height: 26px; }
+
 /* ---- Toast / drop hint ---- */
 .toast {
   position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);

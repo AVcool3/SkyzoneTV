@@ -260,6 +260,16 @@
   function showOverride(o) {
     setHeadline(o.message || `Happy Birthday, ${o.name}!`);
     overrideEl.dataset.theme = o.theme || 'party';
+    // Custom themes carry their headline colors in the spec.
+    if (o.theme === 'custom' && o.themeSpec && o.themeSpec.headline) {
+      overrideEl.style.setProperty('--hl-fill', o.themeSpec.headline.fill);
+      overrideEl.style.setProperty('--hl-stroke', o.themeSpec.headline.stroke);
+      overrideEl.style.setProperty('--hl-glow', o.themeSpec.headline.fill + '88');
+    } else {
+      overrideEl.style.removeProperty('--hl-fill');
+      overrideEl.style.removeProperty('--hl-stroke');
+      overrideEl.style.removeProperty('--hl-glow');
+    }
     let videoBehind = false;
     if (o.mediaUrl) {
       overrideEl.classList.add('has-video');
@@ -268,7 +278,7 @@
       // background rather than showing black behind the hero.
       overrideVideo.onerror = () => {
         overrideEl.classList.remove('has-video');
-        BirthdayScene.start(canvas, o.theme || 'party', false);
+        BirthdayScene.start(canvas, o.theme || 'party', false, o.themeSpec);
       };
       const abs = new URL(o.mediaUrl, location.href).href;
       if (overrideVideo.src !== abs) {
@@ -282,7 +292,7 @@
     }
     stopVideos();
     show('override');
-    BirthdayScene.start(canvas, o.theme || 'party', videoBehind);
+    BirthdayScene.start(canvas, o.theme || 'party', videoBehind, o.themeSpec);
 
     // Local fallback: if the server connection is down when the event should
     // end, clear it ourselves so a TV never gets stuck on a birthday screen.

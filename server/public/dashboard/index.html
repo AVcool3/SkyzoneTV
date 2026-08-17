@@ -37,6 +37,7 @@
     <button class="tab active" data-tab="tvs">TVs <span id="tvCount" class="pill"></span></button>
     <button class="tab" data-tab="media">Media <span id="mediaCount" class="pill"></span></button>
     <button class="tab" data-tab="events">Events <span id="eventCount" class="pill"></span></button>
+    <button class="tab" data-tab="themes">Themes <span id="themeCount" class="pill"></span></button>
   </nav>
 
   <!-- TVs -->
@@ -60,6 +61,22 @@
       <span id="uploadLabel"></span>
     </div>
     <div id="mediaList" class="media-list"></div>
+  </section>
+
+  <!-- Themes -->
+  <section id="tab-themes" class="tabpane hidden">
+    <div class="pane-tools">
+      <button id="addThemeBtn" class="btn primary">+ New theme</button>
+      <span class="hint">Custom themes work everywhere the built-in ones do — in the CSV (by name), the Add-event form, and the 🎂 Test button.</span>
+    </div>
+    <h4 class="theme-h">Built-in</h4>
+    <div class="theme-chips">
+      <span class="theme-chip">🎉 party</span><span class="theme-chip">🦸 superhero</span>
+      <span class="theme-chip">👑 princess</span><span class="theme-chip">🚀 space</span>
+      <span class="theme-chip">🥷 ninja</span>
+    </div>
+    <h4 class="theme-h">Yours</h4>
+    <div id="themeList" class="media-list"></div>
   </section>
 
   <!-- Events -->
@@ -116,6 +133,37 @@
       <button id="eventSave" class="btn primary">Add</button>
     </div>
     <div id="eventError" class="error"></div>
+  </div>
+</div>
+
+<!-- Theme builder modal -->
+<div id="themeModal" class="modal hidden">
+  <div class="modal-card">
+    <h3 id="themeModalTitle">New theme</h3>
+    <label>Name (what you'll type in the CSV) <input id="thName" placeholder="Soccer"></label>
+    <label>Background colors
+      <span class="color-row"><input id="thBg1" type="color" value="#1d7a3e"><input id="thBg2" type="color" value="#0b3d20"></span>
+    </label>
+    <label>Headline colors (letters / outline)
+      <span class="color-row"><input id="thFill" type="color" value="#ffffff"><input id="thStroke" type="color" value="#1d7a3e"></span>
+    </label>
+    <label>Confetti colors
+      <span class="color-row"><input id="thC1" type="color" value="#ffffff"><input id="thC2" type="color" value="#ffd93b"><input id="thC3" type="color" value="#2ecc71"></span>
+    </label>
+    <label>Floating emojis (up to 8 — they drift up the screen) <input id="thEmojis" placeholder="⚽ 🏆 🥅"></label>
+    <label>Extra effects
+      <span class="check-row">
+        <label class="check"><input id="thSparkles" type="checkbox"> ✨ Sparkles</label>
+        <label class="check"><input id="thBalloons" type="checkbox"> 🎈 Balloons</label>
+        <label class="check"><input id="thDots" type="checkbox"> ⚪ Polka dots</label>
+        <label class="check"><input id="thBursts" type="checkbox"> 💥 Starbursts</label>
+      </span>
+    </label>
+    <div class="modal-actions">
+      <button id="themeCancel" class="btn ghost">Cancel</button>
+      <button id="themeSave" class="btn primary">Save theme</button>
+    </div>
+    <div id="themeError" class="error"></div>
   </div>
 </div>
 

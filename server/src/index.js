@@ -8,7 +8,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { Store } from './store.js';
-import { parseEventsCsv, matchMedia, normalizeTheme } from './csv.js';
+import { parseEventsCsv, matchMedia, normalizeTheme, resolveTheme, normalizeLabel, THEMES } from './csv.js';
 import { startScheduler } from './scheduler.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -85,7 +85,8 @@ function dashboardSnapshot() {
     })),
     settings: {
       birthdayMediaId: store.data.settings.birthdayMediaId,
-      dayStarted: store.data.settings.dayStarted
+      dayStarted: store.data.settings.dayStarted,
+      customThemes: store.data.settings.customThemes
     },
     serverTime: new Date().toISOString()
   };
@@ -99,12 +100,26 @@ function playerState(tv) {
   let override = null;
   if (tv.override) {
     const m = tv.override.mediaId ? store.medium(tv.override.mediaId) : null;
+    // Custom themes are resolved to their spec at send time, so edits to a
+    // theme apply to future (and re-pushed) takeovers immediately.
+    let theme = tv.override.theme || 'party';
+    let themeSpec = null;
+    if (theme.startsWith('custom:')) {
+      const ct = store.data.settings.customThemes.find(c => `custom:${c.id}` === theme);
+      if (ct) {
+        theme = 'custom';
+        themeSpec = { bg: ct.bg, headline: ct.headline, confetti: ct.confetti, emojis: ct.emojis, elements: ct.elements };
+      } else {
+        theme = 'party'; // theme was deleted
+      }
+    }
     override = {
       name: tv.override.name,
       message: tv.override.message || `Happy Birthday, ${tv.override.name}!`,
       mediaUrl: m ? `/media/${m.id}${m.ext}` : null,
       endsAt: tv.override.endsAt,
-      theme: tv.override.theme || 'party'
+      theme,
+      themeSpec
     };
   }
   return { type: 'state', tv: { id: tv.id, name: tv.name }, power: tv.power, playlist, override };
@@ -240,7 +255,7 @@ app.post('/api/tvs/:id/test-birthday', requireAuth, (req, res) => {
     message: null,
     mediaId: store.data.settings.birthdayMediaId || null,
     endsAt: new Date(Date.now() + dur * 60_000).toISOString(),
-    theme: normalizeTheme(theme) || 'party',
+    theme: resolveTheme(theme, store.data.settings.customThemes) || 'party',
     restorePowerOff: tv.power === 'off'
   };
   tv.power = 'on';
@@ -350,6 +365,62 @@ app.post('/api/assign-all', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+// ---- Custom birthday themes ----
+const THEME_ELEMENTS = ['sparkles', 'balloons', 'dots', 'bursts'];
+const isColor = c => typeof c === 'string' && /^#[0-9a-fA-F]{6}$/.test(c);
+
+app.post('/api/themes', requireAuth, (req, res) => {
+  const { id, name, bg, headline, confetti, emojis, elements } = req.body || {};
+  if (!name || !String(name).trim()) return res.status(400).json({ error: 'Theme needs a name' });
+  const cleanName = String(name).trim().slice(0, 40);
+  if (normalizeTheme(cleanName) !== null && normalizeLabel(cleanName) !== '') {
+    return res.status(400).json({ error: `"${cleanName}" is a built-in theme name — pick another` });
+  }
+  const themes = store.data.settings.customThemes;
+  const clash = themes.find(c => c.id !== id && normalizeLabel(c.name) === normalizeLabel(cleanName));
+  if (clash) return res.status(400).json({ error: `A theme named "${clash.name}" already exists` });
+  if (!Array.isArray(bg) || bg.length < 2 || !bg.every(isColor)) {
+    return res.status(400).json({ error: 'Pick two background colors' });
+  }
+  if (!headline || !isColor(headline.fill) || !isColor(headline.stroke)) {
+    return res.status(400).json({ error: 'Pick headline colors' });
+  }
+  const theme = {
+    id: id && themes.some(c => c.id === id) ? id : crypto.randomUUID(),
+    name: cleanName,
+    bg: bg.slice(0, 3),
+    headline: { fill: headline.fill, stroke: headline.stroke },
+    confetti: (Array.isArray(confetti) ? confetti.filter(isColor) : []).slice(0, 6),
+    emojis: typeof emojis === 'string' ? [...emojis.replace(/\s+/g, '')].slice(0, 8).join('') : '',
+    elements: (Array.isArray(elements) ? elements.filter(e => THEME_ELEMENTS.includes(e)) : [])
+  };
+  if (theme.confetti.length === 0) theme.confetti = [theme.headline.fill, theme.headline.stroke, '#ffffff'];
+  const i = themes.findIndex(c => c.id === theme.id);
+  if (i === -1) themes.push(theme); else themes[i] = theme;
+  store.save();
+  // TVs currently showing this theme pick up the edit immediately.
+  for (const tv of store.data.tvs) {
+    if (tv.override && tv.override.theme === `custom:${theme.id}`) pushTv(tv.id);
+  }
+  pushDashboards();
+  res.json({ ok: true, theme });
+});
+
+app.delete('/api/themes/:id', requireAuth, (req, res) => {
+  const themes = store.data.settings.customThemes;
+  const i = themes.findIndex(c => c.id === req.params.id);
+  if (i === -1) return res.status(404).json({ error: 'No such theme' });
+  const key = `custom:${themes[i].id}`;
+  themes.splice(i, 1);
+  for (const ev of store.data.events) if (ev.theme === key) ev.theme = 'party';
+  for (const tv of store.data.tvs) {
+    if (tv.override && tv.override.theme === key) { tv.override.theme = 'party'; pushTv(tv.id); }
+  }
+  store.save();
+  pushDashboards();
+  res.json({ ok: true });
+});
+
 app.post('/api/settings', requireAuth, (req, res) => {
   const { birthdayMediaId } = req.body || {};
   if (birthdayMediaId !== undefined) {
@@ -370,7 +441,8 @@ app.post('/api/events/csv', requireAuth, (req, res) => {
   csvUpload.single('file')(req, res, err => {
     if (err) return res.status(400).json({ error: err.message });
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-    const { events, errors } = parseEventsCsv(req.file.buffer.toString('utf8'), store.data.tvs, store.data.media);
+    const { events, errors } = parseEventsCsv(req.file.buffer.toString('utf8'), store.data.tvs, store.data.media,
+      store.data.settings.customThemes);
     if (events.length === 0) {
       // Nothing valid in the file (wrong file, bad headers): never wipe the
       // existing schedule on a failed import.
@@ -420,7 +492,7 @@ app.post('/api/events', requireAuth, (req, res) => {
     startsAt: new Date(start).toISOString(),
     durationMin: Math.min(Math.max(parseFloat(durationMin) || 5, 0.2), 240),
     mediaId,
-    theme: normalizeTheme(theme) || 'party',
+    theme: resolveTheme(theme, store.data.settings.customThemes) || 'party',
     status: 'scheduled',
     source: 'manual'
   };

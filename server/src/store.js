@@ -9,6 +9,7 @@ const DEFAULTS = () => ({
     birthdayMediaId: null,
     dayStarted: true,
     adminPassword: null, // generated on first boot unless ADMIN_PASSWORD env is set
+    customThemes: [],    // user-built birthday themes: { id, name, bg, headline, confetti, emojis, elements }
     tokens: []           // recent dashboard auth tokens (survive restarts)
   }
 });
