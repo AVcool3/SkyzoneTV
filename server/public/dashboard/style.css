@@ -197,7 +197,10 @@ tr:last-child td { border-bottom: none; }
   border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px;
 }
 .pl-row.disabled { opacity: 0.5; }
-.pl-row .row-thumb { width: 74px; height: 42px; object-fit: cover; border-radius: 6px; background: #10203a; flex: none; }
+/* Small thumbnail used in playlist rows, playlist-card previews, and the
+   add-media picker — must not be scoped to one container, or images render
+   at natural (full) size everywhere else. */
+.row-thumb { width: 74px; height: 42px; object-fit: cover; border-radius: 6px; background: #10203a; flex: none; }
 .pl-row .row-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .pl-row .row-timing { display: flex; align-items: center; gap: 5px; font-size: 13px; color: var(--muted); }
 .pl-row .row-timing input { width: 62px; padding: 4px 7px; }
