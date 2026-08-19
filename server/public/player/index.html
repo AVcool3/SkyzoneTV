@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Skyzone TV Player</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; background: #000; overflow: hidden; cursor: none; }
+  body { font-family: 'Segoe UI', Roboto, Arial, sans-serif; }
+
+  .layer {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: contain; background: #000;
+    opacity: 0; pointer-events: none;
+  }
+  body.fit-cover .layer { object-fit: cover; }
+  .layer.visible { opacity: 1; }
+  /* fade transition between playlist items (set from the playlist's setting) */
+  body[data-transition="fade"] .layer { transition: opacity 0.7s ease; }
+
+  /* Idle / pairing screen */
+  #idle {
+    position: absolute; inset: 0; display: none; flex-direction: column;
+    align-items: center; justify-content: center; gap: 24px;
+    background: radial-gradient(ellipse at center, #1a1a2e 0%, #000 75%);
+    color: #fff; text-align: center;
+  }
+  #idle.visible { display: flex; }
+  #idle .logo { font-size: 8vmin; font-weight: 800; letter-spacing: 0.04em; }
+  #idle .logo span { color: #ff6a00; }
+  #idle .tvname {
+    font-size: 6vmin; font-weight: 700; color: #ffcf40;
+    border: 0.5vmin solid #ffcf40; border-radius: 2vmin; padding: 1.5vmin 5vmin;
+  }
+  #idle .hint { font-size: 2.6vmin; color: #9aa0b4; max-width: 70%; line-height: 1.5; }
+  #idle .conn { font-size: 2.2vmin; color: #555; }
+  #idle .conn.bad { color: #ff5c5c; }
+
+  /* Power off = black screen */
+  #off { position: absolute; inset: 0; background: #000; display: none; }
+  #off.visible { display: block; }
+
+  /* Birthday / event takeover */
+  #override {
+    position: absolute; inset: 0; display: none; overflow: hidden;
+    /* headline colors per theme */
+    --hl-fill: #ffd93b; --hl-stroke: #d62828; --hl-glow: rgba(255,217,59,0.5);
+  }
+  #override[data-theme="princess"] { --hl-fill: #ffe3f5; --hl-stroke: #c2255c; --hl-glow: rgba(255,182,225,0.6); }
+  #override[data-theme="space"]    { --hl-fill: #dffbff; --hl-stroke: #1e3799; --hl-glow: rgba(72,219,251,0.55); }
+  #override[data-theme="ninja"]    { --hl-fill: #ffffff; --hl-stroke: #e84118; --hl-glow: rgba(232,65,24,0.5); }
+  #override.visible { display: block; }
+  #override .bg {
+    position: absolute; inset: 0;
+    background: linear-gradient(-45deg, #ff6a00, #d92bbf, #4a2bd9, #ff2b6a, #ffb02b);
+    background-size: 400% 400%;
+    animation: bgshift 12s ease infinite;
+  }
+  #override.has-video .bg { display: none; }
+  @keyframes bgshift {
+    0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; }
+  }
+  #override video {
+    position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: none;
+  }
+  #override.has-video video { display: block; }
+  #confetti { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #override .text {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: flex-start; gap: 2vmin; text-align: center;
+    padding: 7vh 5vmin 0;
+  }
+  #override .headline {
+    font-family: 'Arial Black', Impact, 'Segoe UI', sans-serif;
+    font-size: 9.5vmin; font-weight: 900; color: var(--hl-fill);
+    -webkit-text-stroke: 0.28vmin var(--hl-stroke);
+    text-shadow: 0.8vmin 0.9vmin 0 #101010, 0 0 6vmin var(--hl-glow);
+    transform: rotate(-2deg);
+    animation: pulse 2.2s ease-in-out infinite;
+    line-height: 1.12; overflow-wrap: anywhere; letter-spacing: 0.02em;
+  }
+  #override .headline .word { display: inline-block; white-space: nowrap; }
+  #override .headline .letter { display: inline-block; animation: letterpop 0.55s cubic-bezier(0.2, 1.9, 0.4, 1) both; }
+  @keyframes letterpop {
+    from { transform: scale(0) rotate(-18deg); opacity: 0; }
+    to   { transform: none; opacity: 1; }
+  }
+  #override .subline {
+    font-size: 4vmin; font-weight: 800; color: #ffffff;
+    text-shadow: 0.35vmin 0.4vmin 0 #101010, 0 0 3vmin rgba(0,0,0,0.5);
+    transform: rotate(-2deg);
+  }
+  @keyframes pulse { 0%,100% { transform: rotate(-2deg) scale(1); } 50% { transform: rotate(-2deg) scale(1.04); } }
+
+  /* Tiny status dot (only when disconnected from server) */
+  #netdot {
+    position: absolute; right: 1.2vmin; bottom: 1.2vmin; width: 1.2vmin; height: 1.2vmin;
+    border-radius: 50%; background: #ff5c5c; display: none; opacity: 0.6;
+  }
+  #netdot.visible { display: block; }
+</style>
+</head>
+<body>
+  <video id="videoA" class="layer" muted playsinline preload="auto"></video>
+  <video id="videoB" class="layer" muted playsinline preload="auto"></video>
+  <img id="imageA" class="layer" alt="">
+  <img id="imageB" class="layer" alt="">
+
+  <div id="idle">
+    <div class="logo">SKY<span>ZONE</span> TV</div>
+    <div class="tvname" id="idleName">Connecting…</div>
+    <div class="hint" id="idleHint">This screen is registered. Open the dashboard to name this TV and assign media to it.</div>
+    <div class="conn" id="idleConn"></div>
+  </div>
+
+  <div id="override">
+    <div class="bg"></div>
+    <video id="overrideVideo" muted playsinline loop preload="auto"></video>
+    <canvas id="confetti"></canvas>
+    <div class="text">
+      <div class="headline" id="overrideHeadline"></div>
+      <div class="subline" id="overrideSubline">from your friends at Skyzone Schaumburg!</div>
+    </div>
+  </div>
+
+  <div id="off"></div>
+  <div id="netdot"></div>
+
+<script src="birthday.js"></script>
+<script src="player.js"></script>
+</body>
+</html>

@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Skyzone TV Control</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- Login -->
+<div id="login" class="view">
+  <form id="loginForm" class="login-card">
+    <div class="logo">SKY<span>ZONE</span> TV</div>
+    <div class="login-sub">Schaumburg · Media Control</div>
+    <input id="password" type="password" placeholder="Dashboard password" autocomplete="current-password" autofocus>
+    <button type="submit" class="btn primary wide">Sign in</button>
+    <div id="loginError" class="error"></div>
+  </form>
+</div>
+
+<!-- App -->
+<div id="app" class="view hidden">
+  <header>
+    <div class="logo small">SKY<span>ZONE</span> TV</div>
+    <div class="head-status">
+      <span id="connDot" class="dot off" title="Live connection"></span>
+      <span id="dayState" class="day-state"></span>
+    </div>
+    <div class="head-actions">
+      <button id="startDayBtn" class="btn small">▶ Start day</button>
+      <button id="endDayBtn" class="btn small danger">■ End day</button>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="tvs">TVs <span id="tvCount" class="pill"></span></button>
+    <button class="tab" data-tab="media">Media <span id="mediaCount" class="pill"></span></button>
+    <button class="tab" data-tab="playlists">Playlists <span id="playlistCount" class="pill"></span></button>
+    <button class="tab" data-tab="events">Events <span id="eventCount" class="pill"></span></button>
+    <button class="tab" data-tab="themes">Themes <span id="themeCount" class="pill"></span></button>
+  </nav>
+
+  <!-- TVs -->
+  <section id="tab-tvs" class="tabpane">
+    <div class="pane-tools">
+      <button id="assignAllBtn" class="btn">Set playlist for ALL TVs…</button>
+      <span class="hint">Tip: open <code id="playerUrl"></code> on a TV to pair it — it appears here automatically.</span>
+    </div>
+    <div id="tvGrid" class="tv-grid"></div>
+  </section>
+
+  <!-- Media -->
+  <section id="tab-media" class="tabpane hidden">
+    <div class="pane-tools">
+      <label class="btn primary" for="mediaFile">⬆ Upload media</label>
+      <input id="mediaFile" type="file" accept="video/mp4,video/webm,video/quicktime,image/jpeg,image/png,image/gif,image/webp,.mp4,.m4v,.webm,.mov,.jpg,.jpeg,.png,.gif,.webp" multiple hidden>
+      <span class="hint">Videos (MP4 recommended) and photos/slides (JPG, PNG). Drag &amp; drop anywhere on this page.</span>
+    </div>
+    <div id="uploadProgress" class="upload-progress hidden">
+      <div class="bar"><div id="uploadBar"></div></div>
+      <span id="uploadLabel"></span>
+    </div>
+    <div id="mediaList" class="media-list"></div>
+  </section>
+
+  <!-- Playlists -->
+  <section id="tab-playlists" class="tabpane hidden">
+    <div class="pane-tools">
+      <button id="addPlaylistBtn" class="btn primary">+ New playlist</button>
+      <span class="hint">A playlist is a mix of videos and photos that plays in a loop. Assign it to one TV, several, or all of them — edits go live instantly.</span>
+    </div>
+    <div id="playlistList" class="media-list"></div>
+  </section>
+
+  <!-- Themes -->
+  <section id="tab-themes" class="tabpane hidden">
+    <div class="pane-tools">
+      <button id="addThemeBtn" class="btn primary">+ New theme</button>
+      <span class="hint">Custom themes work everywhere the built-in ones do — in the CSV (by name), the Add-event form, and the 🎂 Test button.</span>
+    </div>
+    <h4 class="theme-h">Built-in</h4>
+    <div class="theme-chips">
+      <span class="theme-chip">🎉 party</span><span class="theme-chip">🦸 superhero</span>
+      <span class="theme-chip">👑 princess</span><span class="theme-chip">🚀 space</span>
+      <span class="theme-chip">🥷 ninja</span>
+    </div>
+    <h4 class="theme-h">Yours</h4>
+    <div id="themeList" class="media-list"></div>
+  </section>
+
+  <!-- Events -->
+  <section id="tab-events" class="tabpane hidden">
+    <div class="pane-tools">
+      <label class="btn primary" for="csvFile">⬆ Upload events CSV</label>
+      <input id="csvFile" type="file" accept=".csv,text/csv" hidden>
+      <button id="addEventBtn" class="btn">+ Add event</button>
+      <a class="btn ghost" href="sample-events.csv" download>Sample CSV</a>
+      <button id="clearDoneBtn" class="btn ghost">Clear finished</button>
+    </div>
+    <div id="csvReport" class="csv-report hidden"></div>
+    <div class="table-wrap">
+      <table id="eventTable">
+        <thead><tr><th>Starts</th><th>TV</th><th>Name</th><th>Message</th><th>Length</th><th>Theme</th><th>Media</th><th>Status</th><th></th></tr></thead>
+        <tbody id="eventRows"></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<!-- Media picker modal -->
+<div id="pickerModal" class="modal hidden">
+  <div class="modal-card">
+    <h3 id="pickerTitle">Choose media</h3>
+    <p class="hint">Checked items play in a loop, top to bottom. Numbers show play order.</p>
+    <div id="pickerList" class="picker-list"></div>
+    <div class="modal-actions">
+      <button id="pickerCancel" class="btn ghost">Cancel</button>
+      <button id="pickerSave" class="btn primary">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add event modal -->
+<div id="eventModal" class="modal hidden">
+  <div class="modal-card">
+    <h3>Add event</h3>
+    <label>TV <select id="evTv"></select></label>
+    <label>Name (shown on screen) <input id="evName" placeholder="Aiden"></label>
+    <label>Custom message (optional) <input id="evMessage" placeholder="Happy Birthday, Aiden!"></label>
+    <label>Date &amp; time <input id="evStart" type="datetime-local"></label>
+    <label>Duration (minutes) <input id="evDuration" type="number" value="5" min="1" max="240"></label>
+    <label>Theme <select id="evTheme">
+      <option value="party">🎉 Party (default)</option>
+      <option value="superhero">🦸 Superhero</option>
+      <option value="princess">👑 Princess</option>
+      <option value="space">🚀 Space</option>
+      <option value="ninja">🥷 Ninja</option>
+    </select></label>
+    <label>Background video (optional — overrides the theme) <select id="evMedia"><option value="">Use the theme above</option></select></label>
+    <div class="modal-actions">
+      <button id="eventCancel" class="btn ghost">Cancel</button>
+      <button id="eventSave" class="btn primary">Add</button>
+    </div>
+    <div id="eventError" class="error"></div>
+  </div>
+</div>
+
+<!-- Playlist editor modal (Directable-style slides table) -->
+<div id="playlistModal" class="modal hidden">
+  <div class="modal-card wide">
+    <h3 id="playlistModalTitle">Edit Playlist</h3>
+    <label>Playlist name <input id="plName" placeholder="Party TV 1"></label>
+    <label>Transitions
+      <span class="check-row">
+        <label class="check"><input type="radio" name="plTransition" value="none" checked> None</label>
+        <label class="check"><input type="radio" name="plTransition" value="fade"> Fade In/Out</label>
+      </span>
+    </label>
+    <div class="pane-tools" style="margin:4px 0 0">
+      <strong style="flex:1">Slides</strong>
+      <button id="plAddMedia" class="btn small primary">+ Add media</button>
+    </div>
+    <div id="plRows" class="pl-rows"></div>
+    <div class="modal-actions">
+      <button id="playlistCancel" class="btn ghost">Cancel</button>
+      <button id="playlistSave" class="btn primary">Save Changes</button>
+    </div>
+    <div id="playlistError" class="error"></div>
+  </div>
+</div>
+
+<!-- Add-media-to-playlist picker -->
+<div id="plMediaModal" class="modal hidden">
+  <div class="modal-card">
+    <h3>Add media</h3>
+    <div id="plMediaList" class="picker-list"></div>
+    <div class="modal-actions"><button id="plMediaClose" class="btn ghost">Done</button></div>
+  </div>
+</div>
+
+<!-- TV content picker (playlist or custom selection) -->
+<div id="contentModal" class="modal hidden">
+  <div class="modal-card">
+    <h3 id="contentTitle">Choose content</h3>
+    <div id="contentList" class="picker-list"></div>
+    <div class="modal-actions">
+      <button id="contentCancel" class="btn ghost">Cancel</button>
+      <button id="contentSave" class="btn primary">Apply</button>
+    </div>
+  </div>
+</div>
+
+<!-- Theme builder modal -->
+<div id="themeModal" class="modal hidden">
+  <div class="modal-card">
+    <h3 id="themeModalTitle">New theme</h3>
+    <label>Name (what you'll type in the CSV) <input id="thName" placeholder="Soccer"></label>
+    <label>Background colors
+      <span class="color-row"><input id="thBg1" type="color" value="#1d7a3e"><input id="thBg2" type="color" value="#0b3d20"></span>
+    </label>
+    <label>Headline colors (letters / outline)
+      <span class="color-row"><input id="thFill" type="color" value="#ffffff"><input id="thStroke" type="color" value="#1d7a3e"></span>
+    </label>
+    <label>Confetti colors
+      <span class="color-row"><input id="thC1" type="color" value="#ffffff"><input id="thC2" type="color" value="#ffd93b"><input id="thC3" type="color" value="#2ecc71"></span>
+    </label>
+    <label>Floating emojis (up to 8 — they drift up the screen) <input id="thEmojis" placeholder="⚽ 🏆 🥅"></label>
+    <label>Extra effects
+      <span class="check-row">
+        <label class="check"><input id="thSparkles" type="checkbox"> ✨ Sparkles</label>
+        <label class="check"><input id="thBalloons" type="checkbox"> 🎈 Balloons</label>
+        <label class="check"><input id="thDots" type="checkbox"> ⚪ Polka dots</label>
+        <label class="check"><input id="thBursts" type="checkbox"> 💥 Starbursts</label>
+      </span>
+    </label>
+    <div class="modal-actions">
+      <button id="themeCancel" class="btn ghost">Cancel</button>
+      <button id="themeSave" class="btn primary">Save theme</button>
+    </div>
+    <div id="themeError" class="error"></div>
+  </div>
+</div>
+
+<!-- Preview modal -->
+<div id="previewModal" class="modal hidden">
+  <div class="modal-card wide">
+    <h3 id="previewTitle"></h3>
+    <video id="previewVideo" controls playsinline style="width:100%;max-height:60vh;background:#000;border-radius:8px"></video>
+    <img id="previewImage" class="hidden" style="width:100%;max-height:60vh;object-fit:contain;background:#000;border-radius:8px" alt="">
+    <div class="modal-actions"><button id="previewClose" class="btn ghost">Close</button></div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+<div id="dropHint" class="drop-hint hidden">Drop video files to upload</div>
+
+<script src="app.js"></script>
+</body>
+</html>
