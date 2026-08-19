@@ -60,6 +60,10 @@ const run = async () => {
 
   await cleanupLeftovers(token);
 
+  // the native Android app is served for Downloader installs on the TVs
+  const apk = await fetch(BASE + '/skyzone-player.apk', { method: 'HEAD' });
+  check('android player apk is served', apk.status === 200);
+
   // player registration
   const reg = await api(null, 'POST', '/api/player/register', {});
   check('player registers', reg.status === 200 && reg.data.tvId);

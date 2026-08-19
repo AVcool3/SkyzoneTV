@@ -90,21 +90,44 @@ public internet.
 
 ## 3. Set up each TV (~10 minutes per TV)
 
-### If the TVs have Google TV built in (no stick needed)
+### Any Google TV / Android TV device (built-in TVs, onn boxes, Chromecast)
 
-If the park's TVs already run Google TV / Android TV (Google Play on the TV
-itself), skip the Fire Sticks — install the player directly on each TV:
+Works for TVs with Google TV built in and for plug-in boxes like the
+**onn. 4K / 4K Plus**. Two app choices — the **Skyzone TV Player app**
+(recommended: our own app, served by your own server, no third-party
+software) or Fully Kiosk (an off-the-shelf kiosk browser).
+
+Common first steps on the device:
 
 1. **Developer mode:** Settings → System → About → click **"Android TV OS
    build"** 7 times.
 2. **Install Downloader:** Play Store on the TV → "**Downloader by AFTVnews**".
-3. **Allow installs:** Settings → Apps → Security & Restrictions → **Unknown
-   sources** → ON for Downloader.
-4. **Install Fully Kiosk:** open Downloader → enter `fully-kiosk.com/go` →
-   install the APK.
-5. **Configure Fully Kiosk:** Start URL `http://YOUR-SERVER-IP:8080/player/`;
+3. **Allow installs:** the toggle moves around between firmware versions —
+   the reliable route is to just attempt the install in step 4; when Android
+   blocks it, the prompt's **Settings** button jumps straight to the right
+   screen (enable for Downloader, press Back, install again). Manual paths to
+   try: Settings → Apps → Security & Restrictions → Unknown sources, or
+   Settings → Privacy → Security & Restrictions, or Settings → Apps →
+   Special app access → Install unknown apps.
+
+**Option A — Skyzone TV Player app (recommended):**
+
+4. Open Downloader → enter `http://YOUR-SERVER-IP:8080/skyzone-player.apk`
+   (the server hosts the app itself) → Install → Open.
+5. Enter the server address when asked (e.g. `http://YOUR-SERVER-IP:8080`).
+6. Allow **"Display over other apps"** when prompted — that's what lets the
+   player relaunch itself automatically after a power cut.
+   (Press ☰ MENU on the remote later to change the server address.)
+
+**Option B — Fully Kiosk Browser:**
+
+4. Open Downloader → enter `fully-kiosk.com/go` → install the APK.
+5. Configure: Start URL `http://YOUR-SERVER-IP:8080/player/`;
    Web Content Settings → **Autoplay Videos ON**; Device Management →
    **Launch on Boot ON**, **Keep Screen On ON** (grant what it asks).
+
+Then, either way:
+
 6. **Stop the TV sleeping:** Settings → System → Power & Energy → "Turn off
    display" → longest/Never, and **Ambient mode / Screen saver → Off** so
    Google's screensaver never covers your media.
@@ -144,16 +167,17 @@ password, and the server address from step 2.
 That's it — the TV is permanently set up. It reconnects and resumes by itself
 after power cuts, Wi-Fi drops, and server restarts.
 
-### Optional: the native Android app instead of Fully Kiosk
+### About the native app
 
-`android-player/` is a tiny native Android TV app (a full-screen wrapper around
-the same player) if you prefer an installed "Skyzone TV Player" app over Fully
-Kiosk. Open the folder in Android Studio → Build → Build APK, then install the
-APK on each stick with the same Downloader method (host the APK file anywhere
-on your network) or `adb install`. On first launch it asks for the server
-address; press ☰ (menu) on the remote to change it later. Fully Kiosk is
-recommended to start — it's faster to deploy and adds crash-recovery and
-remote-management features.
+`android-player/` is the source of the **Skyzone TV Player** app; a prebuilt
+APK ships at `server/public/skyzone-player.apk`, so every server automatically
+hosts the app for its own TVs at `http://YOUR-SERVER-IP:8080/skyzone-player.apk`
+(that's what Option A above installs). It boots straight into the player,
+relaunches itself after power cuts (with the "Display over other apps"
+permission granted), recovers from renderer crashes, and keeps the screen
+awake. To modify and rebuild it: open the folder in Android Studio → Build →
+Build APK, then replace `server/public/skyzone-player.apk`. You can also
+install it from a computer with `adb install skyzone-player.apk`.
 
 ---
 

@@ -2,11 +2,15 @@ package com.skyzone.tvplayer
 
 import android.annotation.SuppressLint
 import android.app.AlertDialog
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import android.text.InputType
 import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -53,10 +57,35 @@ class MainActivity : AppCompatActivity() {
                     view.postDelayed({ view.loadUrl(playerUrl()) }, 5000)
                 }
             }
+
+            override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                // Web renderer crashed after hours of playback: rebuild the
+                // whole activity instead of showing a dead white screen.
+                recreate()
+                return true
+            }
         }
 
         val url = prefs.getString("serverUrl", null)
         if (url == null) promptForUrl() else webView.loadUrl(playerUrl())
+        ensureBootPermission()
+    }
+
+    /** Boot auto-start needs "Display over other apps"; ask until granted. */
+    private fun ensureBootPermission() {
+        if (Settings.canDrawOverlays(this)) return
+        AlertDialog.Builder(this)
+            .setTitle("Allow auto-start after power loss")
+            .setMessage("Enable \"Display over other apps\" for Skyzone TV Player so the player relaunches by itself when the box reboots.")
+            .setPositiveButton("Open setting") { _, _ ->
+                try {
+                    startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+                } catch (e: Exception) {
+                    try { startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)) } catch (_: Exception) {}
+                }
+            }
+            .setNegativeButton("Later", null)
+            .show()
     }
 
     private fun playerUrl(): String {
