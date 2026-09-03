@@ -80,6 +80,7 @@ function dashboardSnapshot() {
       id: t.id, name: t.name, power: t.power, online: tvOnline(t.id),
       lastSeen: t.lastSeen, assignedMediaIds: t.assignedMediaIds,
       playlistId: t.playlistId || null,
+      fit: t.fit || 'contain',
       nowPlaying: t.nowPlaying || null,
       override: t.override ? { name: t.override.name, endsAt: t.override.endsAt } : null
     })),
@@ -150,7 +151,8 @@ function playerState(tv) {
       themeSpec
     };
   }
-  return { type: 'state', tv: { id: tv.id, name: tv.name }, power: tv.power, playlist, transition, override };
+  return { type: 'state', tv: { id: tv.id, name: tv.name }, power: tv.power,
+    fit: tv.fit || 'contain', playlist, transition, override };
 }
 
 function pushTv(tvId) {
@@ -230,8 +232,9 @@ app.get('/api/state', requireAuth, (req, res) => res.json(dashboardSnapshot()));
 app.patch('/api/tvs/:id', requireAuth, (req, res) => {
   const tv = store.tv(req.params.id);
   if (!tv) return res.status(404).json({ error: 'No such TV' });
-  const { name } = req.body || {};
+  const { name, fit } = req.body || {};
   if (typeof name === 'string' && name.trim()) tv.name = name.trim().slice(0, 60);
+  if (fit === 'contain' || fit === 'cover') tv.fit = fit;
   store.save();
   pushTv(tv.id);
   pushDashboards();

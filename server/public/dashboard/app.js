@@ -495,38 +495,156 @@
     } catch (err) { $('playlistError').textContent = err.message; }
   });
 
-  // ---------- TV content picker (playlist or custom selection) ----------
+  // ---------- TV content panel ----------
+  // A visual sub-UI: playlist cards with previews, apply-to-many-TVs chips,
+  // and per-TV screen fit. Selection state lives here until Apply.
   function openContentModal(tv) {
-    $('contentTitle').textContent = `Content for ${tv.name}`;
-    const list = $('contentList');
-    list.innerHTML = '';
     let choice = tv.playlistId || 'custom';
-    const options = (state.playlists || []).map(p => ({
-      value: p.id, label: `📋 ${p.name}`, hint: `${p.items.length} slides`
-    }));
-    options.push({ value: 'custom', label: '🎛 Custom selection…', hint: 'pick individual media for just this TV' });
-    for (const opt of options) {
-      const row = document.createElement('label');
-      row.className = 'radio-row';
-      row.innerHTML = `
-        <input type="radio" name="tvContent" value="${esc(opt.value)}" ${choice === opt.value ? 'checked' : ''}>
-        <span class="r-label">${esc(opt.label)}</span>
-        <span class="hint">${esc(opt.hint)}</span>`;
-      row.querySelector('input').addEventListener('change', () => { choice = opt.value; });
-      list.appendChild(row);
+    let fit = tv.fit || 'contain';
+    const extraTvs = new Set();
+
+    $('contentTitle').textContent = `Content for ${tv.name}`;
+    const currentPl = tv.playlistId ? (state.playlists || []).find(p => p.id === tv.playlistId) : null;
+    $('contentNow').textContent = 'Currently: ' + (currentPl ? `playlist "${currentPl.name}"` :
+      tv.assignedMediaIds.length ? `custom selection (${tv.assignedMediaIds.length} items)` : 'nothing (idle screen)');
+
+    const cards = $('contentCards');
+    cards.innerHTML = '';
+
+    function makeCard({ key, ribbon, strip, big, name, meta, actions }) {
+      const card = document.createElement('div');
+      card.className = 'content-card' + (choice === key ? ' selected' : '');
+      card.dataset.key = key;
+      card.innerHTML = `
+        ${ribbon ? '<span class="cc-ribbon">NOW PLAYING</span>' : ''}
+        <span class="cc-check">✓</span>
+        ${strip ? `<div class="cc-strip">${strip}</div>` : `<div class="cc-big">${big}</div>`}
+        <div class="cc-name">${esc(name)}</div>
+        <div class="cc-meta">${meta}</div>
+        ${actions ? `<div class="cc-actions">${actions}</div>` : ''}`;
+      card.addEventListener('click', e => {
+        if (e.target.closest('.cc-actions')) return;
+        choice = key;
+        cards.querySelectorAll('.content-card').forEach(c => c.classList.toggle('selected', c === card));
+        updateSummary();
+      });
+      cards.appendChild(card);
+      return card;
     }
-    const save = async () => {
+
+    for (const p of state.playlists || []) {
+      const strip = p.items.slice(0, 4).map(it => {
+        const m = state.media.find(x => x.id === it.mediaId);
+        return m ? thumbHtml(m, 'row-thumb') : '';
+      }).join('') || '<div class="cc-big" style="flex:1">📋</div>';
+      const vids = p.items.filter(it => (state.media.find(m => m.id === it.mediaId) || {}).type !== 'image').length;
+      const photos = p.items.length - vids;
+      const card = makeCard({
+        key: p.id,
+        ribbon: tv.playlistId === p.id,
+        strip,
+        name: `📋 ${p.name}`,
+        meta: `${p.items.length} slide${p.items.length === 1 ? '' : 's'} — ${vids} video${vids === 1 ? '' : 's'}, ${photos} photo${photos === 1 ? '' : 's'}<br>` +
+          `${p.transition === 'fade' ? 'fade transition' : 'no transition'} · on ${p.usedBy} TV${p.usedBy === 1 ? '' : 's'}`,
+        actions: '<button class="btn tiny" data-edit>✏ Edit playlist</button>'
+      });
+      card.querySelector('[data-edit]').addEventListener('click', () => {
+        $('contentModal').classList.add('hidden');
+        openPlaylistModal(p);
+      });
+    }
+
+    makeCard({
+      key: 'custom',
+      ribbon: !tv.playlistId && tv.assignedMediaIds.length > 0,
+      big: '🎛',
+      name: 'Custom selection…',
+      meta: 'Hand-pick individual media for the chosen TVs — good for one-off setups.'
+    });
+
+    makeCard({
+      key: 'blank',
+      ribbon: !tv.playlistId && tv.assignedMediaIds.length === 0,
+      big: '🌙',
+      name: 'Idle screen',
+      meta: 'Show the Skyzone standby screen — no media plays.'
+    });
+
+    const newCard = makeCard({
+      key: 'new',
+      big: '➕',
+      name: 'New playlist…',
+      meta: 'Build a fresh mix and come back to assign it.'
+    });
+    newCard.addEventListener('click', () => {
       $('contentModal').classList.add('hidden');
-      if (choice === 'custom') {
-        openPicker(`Custom selection for ${tv.name}`, tv.assignedMediaIds, ids =>
-          api(`/api/tvs/${tv.id}/assign`, { method: 'POST', body: JSON.stringify({ mediaIds: ids }) })
-            .then(() => toast(`Updated ${tv.name}`)).catch(e => toast(e.message, true)));
-      } else {
-        await api(`/api/tvs/${tv.id}/playlist`, { method: 'POST', body: JSON.stringify({ playlistId: choice }) })
-          .then(() => toast(`${tv.name} now plays that playlist`)).catch(e => toast(e.message, true));
-      }
+      document.querySelector('.tab[data-tab="playlists"]').click();
+      openPlaylistModal(null);
+    });
+
+    // chips for pushing the same choice to more TVs at once
+    const chips = $('contentTvChips');
+    chips.innerHTML = state.tvs.length > 1 ? '' : '<span class="hint">No other TVs paired yet.</span>';
+    for (const other of state.tvs) {
+      if (other.id === tv.id) continue;
+      const chip = document.createElement('button');
+      chip.className = 'chip';
+      chip.innerHTML = `<span class="dot ${other.online ? 'on' : 'off'}"></span>${esc(other.name)}`;
+      chip.addEventListener('click', () => {
+        if (extraTvs.has(other.id)) extraTvs.delete(other.id); else extraTvs.add(other.id);
+        chip.classList.toggle('on', extraTvs.has(other.id));
+        updateSummary();
+      });
+      chips.appendChild(chip);
+    }
+
+    // screen fit
+    const fitChips = $('fitChips').querySelectorAll('.chip');
+    fitChips.forEach(c => {
+      c.classList.toggle('on', c.dataset.fit === fit);
+      c.onclick = () => {
+        fit = c.dataset.fit;
+        fitChips.forEach(x => x.classList.toggle('on', x.dataset.fit === fit));
+      };
+    });
+
+    function updateSummary() {
+      const n = 1 + extraTvs.size;
+      const what = choice === 'custom' ? 'a custom selection' :
+        choice === 'blank' ? 'the idle screen' :
+        choice === 'new' ? 'a new playlist' :
+        `"${(state.playlists.find(p => p.id === choice) || {}).name}"`;
+      $('contentSummary').textContent = `Applying ${what} to ${n} TV${n === 1 ? '' : 's'}`;
+    }
+    updateSummary();
+
+    $('contentSave').onclick = async () => {
+      const targets = [tv.id, ...extraTvs];
+      $('contentModal').classList.add('hidden');
+      try {
+        for (const id of targets) {
+          await api(`/api/tvs/${id}`, { method: 'PATCH', body: JSON.stringify({ fit }) });
+        }
+        if (choice === 'blank') {
+          for (const id of targets) {
+            await api(`/api/tvs/${id}/assign`, { method: 'POST', body: JSON.stringify({ mediaIds: [] }) });
+          }
+          toast(`Idle screen on ${targets.length} TV${targets.length === 1 ? '' : 's'}`);
+        } else if (choice === 'custom') {
+          openPicker(`Custom selection for ${targets.length} TV${targets.length === 1 ? '' : 's'}`, tv.assignedMediaIds, async ids => {
+            for (const id of targets) {
+              await api(`/api/tvs/${id}/assign`, { method: 'POST', body: JSON.stringify({ mediaIds: ids }) });
+            }
+            toast(`Custom selection applied to ${targets.length} TV${targets.length === 1 ? '' : 's'}`);
+          });
+        } else if (choice !== 'new') {
+          for (const id of targets) {
+            await api(`/api/tvs/${id}/playlist`, { method: 'POST', body: JSON.stringify({ playlistId: choice }) });
+          }
+          toast(`Playlist applied to ${targets.length} TV${targets.length === 1 ? '' : 's'}`);
+        }
+      } catch (e) { toast(e.message, true); }
     };
-    $('contentSave').onclick = save;
     $('contentCancel').onclick = () => $('contentModal').classList.add('hidden');
     $('contentModal').classList.remove('hidden');
   }

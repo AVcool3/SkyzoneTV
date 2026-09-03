@@ -179,13 +179,34 @@
   </div>
 </div>
 
-<!-- TV content picker (playlist or custom selection) -->
+<!-- TV content panel: visual playlist cards + multi-TV apply + screen fit -->
 <div id="contentModal" class="modal hidden">
-  <div class="modal-card">
-    <h3 id="contentTitle">Choose content</h3>
-    <div id="contentList" class="picker-list"></div>
+  <div class="modal-card sheet">
+    <div class="sheet-head">
+      <div>
+        <h3 id="contentTitle">Content</h3>
+        <div class="hint" id="contentNow"></div>
+      </div>
+      <button id="contentCancel" class="btn ghost">✕ Close</button>
+    </div>
+
+    <div id="contentCards" class="content-cards"></div>
+
+    <div class="sheet-section">
+      <div class="sheet-label">Also apply to these TVs</div>
+      <div id="contentTvChips" class="chip-row"></div>
+    </div>
+
+    <div class="sheet-section">
+      <div class="sheet-label">Screen fit</div>
+      <div class="chip-row" id="fitChips">
+        <button class="chip" data-fit="contain">▣ Fit — whole picture, black bars if needed</button>
+        <button class="chip" data-fit="cover">⛶ Fill — edge to edge, may crop</button>
+      </div>
+    </div>
+
     <div class="modal-actions">
-      <button id="contentCancel" class="btn ghost">Cancel</button>
+      <span id="contentSummary" class="hint" style="flex:1;text-align:left"></span>
       <button id="contentSave" class="btn primary">Apply</button>
     </div>
   </div>

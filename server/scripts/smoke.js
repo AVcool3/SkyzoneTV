@@ -71,10 +71,12 @@ const run = async () => {
   const reg2 = await api(null, 'POST', '/api/player/register', { existingId: tvId });
   check('re-register keeps same id', reg2.data.tvId === tvId);
 
-  // rename
-  await api(token, 'PATCH', `/api/tvs/${tvId}`, { name: 'Smoke Room 1' });
+  // rename + screen fit
+  await api(token, 'PATCH', `/api/tvs/${tvId}`, { name: 'Smoke Room 1', fit: 'cover' });
   let state = (await api(token, 'GET', '/api/state')).data;
   check('rename works', state.tvs.find(t => t.id === tvId)?.name === 'Smoke Room 1');
+  check('screen fit stored', state.tvs.find(t => t.id === tvId)?.fit === 'cover');
+  await api(token, 'PATCH', `/api/tvs/${tvId}`, { fit: 'contain' });
 
   // upload a tiny fake mp4
   const form = new FormData();

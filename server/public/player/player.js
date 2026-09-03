@@ -134,6 +134,9 @@
 
   function applyState(msg) {
     state = msg;
+    // Screen fit is set per TV in the dashboard (URL ?fit=cover still wins).
+    document.body.classList.toggle('fit-cover',
+      params.get('fit') === 'cover' || (msg.fit === 'cover' && params.get('fit') !== 'contain'));
     if (msg.tv && msg.tv.name) idleName.textContent = msg.tv.name;
     idleConn.textContent = '';
     idleConn.classList.remove('bad');
