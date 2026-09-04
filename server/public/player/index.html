@@ -19,6 +19,22 @@
   /* fade transition between playlist items (set from the playlist's setting) */
   body[data-transition="fade"] .layer { transition: opacity 0.7s ease; }
 
+  /* Dashboard-made slides (rendered natively, always crisp) */
+  .slide-layer {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 2.5vmin; text-align: center; padding: 6vmin;
+  }
+  .slide-layer .s-badge {
+    font-size: 3vmin; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase;
+    border: 0.4vmin solid currentColor; border-radius: 999px; padding: 1vmin 3.5vmin;
+  }
+  .slide-layer .s-headline {
+    font-family: 'Arial Black', Impact, 'Segoe UI', sans-serif;
+    font-size: 9vmin; font-weight: 900; line-height: 1.12; overflow-wrap: anywhere;
+    text-shadow: 0 0.6vmin 2.5vmin rgba(0,0,0,0.35);
+  }
+  .slide-layer .s-sub { font-size: 4.2vmin; font-weight: 600; opacity: 0.92; }
+
   /* Idle / pairing screen */
   #idle {
     position: absolute; inset: 0; display: none; flex-direction: column;
@@ -106,6 +122,8 @@
   <video id="videoB" class="layer" muted playsinline preload="auto"></video>
   <img id="imageA" class="layer" alt="">
   <img id="imageB" class="layer" alt="">
+  <div id="slideA" class="layer slide-layer"></div>
+  <div id="slideB" class="layer slide-layer"></div>
 
   <div id="idle">
     <div class="logo">SKY<span>ZONE</span> TV</div>

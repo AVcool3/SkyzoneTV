@@ -55,7 +55,9 @@
     <div class="pane-tools">
       <label class="btn primary" for="mediaFile">⬆ Upload media</label>
       <input id="mediaFile" type="file" accept="video/mp4,video/webm,video/quicktime,image/jpeg,image/png,image/gif,image/webp,.mp4,.m4v,.webm,.mov,.jpg,.jpeg,.png,.gif,.webp" multiple hidden>
-      <span class="hint">Videos (MP4 recommended) and photos/slides (JPG, PNG). Drag &amp; drop anywhere on this page.</span>
+      <button id="addSlideBtn" class="btn">＋ Create slide</button>
+      <span class="hint">Videos and photos upload; slides are made right here and stay editable forever.</span>
+      <input id="replaceFile" type="file" accept="video/mp4,video/webm,video/quicktime,image/jpeg,image/png,image/gif,image/webp,.mp4,.m4v,.webm,.mov,.jpg,.jpeg,.png,.gif,.webp" hidden>
     </div>
     <div id="uploadProgress" class="upload-progress hidden">
       <div class="bar"><div id="uploadBar"></div></div>
@@ -209,6 +211,31 @@
       <span id="contentSummary" class="hint" style="flex:1;text-align:left"></span>
       <button id="contentSave" class="btn primary">Apply</button>
     </div>
+  </div>
+</div>
+
+<!-- Slide editor -->
+<div id="slideModal" class="modal hidden">
+  <div class="modal-card">
+    <h3 id="slideModalTitle">Create slide</h3>
+    <label>Name (for the library &amp; CSV) <input id="slLabel" placeholder="Pizza Deal"></label>
+    <label>Small top line (optional) <input id="slBadge" placeholder="TODAY ONLY"></label>
+    <label>Headline <input id="slHeadline" placeholder="Pizza + Drink $8.99"></label>
+    <label>Details (optional) <input id="slSub" placeholder="At the cafe until 8pm"></label>
+    <label>Background colors
+      <span class="color-row"><input id="slBg1" type="color" value="#ff6a00"><input id="slBg2" type="color" value="#d92b6a"></span>
+    </label>
+    <label>Text color <span class="color-row"><input id="slText" type="color" value="#ffffff"></span></label>
+    <label>Shows for
+      <span class="color-row" style="align-items:center"><input id="slDur" type="number" value="8" min="1" max="3600" style="width:80px"> <span class="hint">seconds</span></span>
+    </label>
+    <div class="sheet-label">Live preview</div>
+    <div id="slPreview" class="slide-preview"></div>
+    <div class="modal-actions">
+      <button id="slideCancel" class="btn ghost">Cancel</button>
+      <button id="slideSave" class="btn primary">Save slide</button>
+    </div>
+    <div id="slideError" class="error"></div>
   </div>
 </div>
 

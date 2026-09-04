@@ -146,7 +146,15 @@
   }
 
   function thumbHtml(m, cls = 'thumb') {
-    // Photos show themselves; videos show their first frame via preload=metadata.
+    // Photos show themselves; videos show their first frame; slides render live.
+    if (m.type === 'slide') {
+      const s = m.slide || {};
+      return `<div class="${cls} slide-thumb" style="background:linear-gradient(135deg, ${esc(s.bg?.[0] || '#333')}, ${esc(s.bg?.[1] || '#111')});color:${esc(s.textColor || '#fff')}">
+        ${s.badge ? `<span class="sp-badge">${esc(s.badge)}</span>` : ''}
+        <span class="sp-headline">${esc(s.headline || m.label)}</span>
+        ${s.subtext ? `<span class="sp-sub">${esc(s.subtext)}</span>` : ''}
+      </div>`;
+    }
     return m.type === 'image'
       ? `<img class="${cls}" src="${esc(m.url)}" loading="lazy" alt="">`
       : `<video class="${cls}" src="${esc(m.url)}" preload="metadata" muted playsinline></video>`;
@@ -267,17 +275,20 @@
       const inPlaylists = (state.playlists || []).filter(p => p.items.some(it => it.mediaId === m.id)).length;
       const card = document.createElement('div');
       card.className = 'media-card';
+      const typeBadge = m.type === 'slide' ? '📝 SLIDE' : m.type === 'image' ? '🖼 PHOTO' : '🎬 VIDEO';
       card.innerHTML = `
-        <div class="thumb-wrap">${thumbHtml(m)}<span class="type-badge">${m.type === 'image' ? '🖼 PHOTO' : '🎬 VIDEO'}</span></div>
+        <div class="thumb-wrap">${thumbHtml(m)}<span class="type-badge">${typeBadge}</span></div>
         <input class="m-label" value="${esc(m.label)}" title="Click to rename">
-        <div class="m-meta">${fmtSize(m.size)} · uploaded ${fmtTime(m.uploadedAt)} · ${usedBy} TV${usedBy === 1 ? '' : 's'} · ${inPlaylists} playlist${inPlaylists === 1 ? '' : 's'}</div>
-        ${m.type === 'image' ? `<div class="m-duration">Shows for <input type="number" class="m-dur" value="${m.durationSec}" min="1" max="3600" step="1"> seconds</div>` : ''}
+        <div class="m-meta">${m.type === 'slide' ? 'made in the dashboard' : `${fmtSize(m.size)} · uploaded ${fmtTime(m.uploadedAt)}`} · ${usedBy} TV${usedBy === 1 ? '' : 's'} · ${inPlaylists} playlist${inPlaylists === 1 ? '' : 's'}</div>
+        ${m.type !== 'video' ? `<div class="m-duration">Shows for <input type="number" class="m-dur" value="${m.durationSec}" min="1" max="3600" step="1"> seconds</div>` : ''}
         ${isBday ? '<div class="m-bday">🎂 Default birthday video</div>' : ''}
         <div class="m-actions">
-          <button class="btn tiny" data-act="preview">${m.type === 'image' ? '🔍 View' : '▶ Preview'}</button>
+          ${m.type === 'slide' ? '<button class="btn tiny" data-act="editslide">✏ Edit slide</button>' :
+            `<button class="btn tiny" data-act="preview">${m.type === 'image' ? '🔍 View' : '▶ Preview'}</button>`}
           ${m.type === 'image' ? '<button class="btn tiny" data-act="canva">🎨 Edit in Canva</button>' : ''}
+          ${m.type !== 'slide' ? '<button class="btn tiny" data-act="replace">↻ Replace file</button>' : ''}
           <button class="btn tiny" data-act="all">Apply to all TVs</button>
-          <button class="btn tiny" data-act="bday">${isBday ? 'Unset birthday' : 'Set as birthday'}</button>
+          ${m.type !== 'slide' ? `<button class="btn tiny" data-act="bday">${isBday ? 'Unset birthday' : 'Set as birthday'}</button>` : ''}
           <button class="btn tiny danger" data-act="del">Delete</button>
         </div>`;
 
@@ -292,7 +303,17 @@
         api(`/api/media/${m.id}`, { method: 'PATCH', body: JSON.stringify({ durationSec: parseFloat(durInput.value) }) })
           .then(() => toast('Slide timing updated')).catch(e => toast(e.message, true)));
 
-      card.querySelector('[data-act="preview"]').addEventListener('click', () => {
+      const editSlideBtn = card.querySelector('[data-act="editslide"]');
+      if (editSlideBtn) editSlideBtn.addEventListener('click', () => openSlideModal(m));
+
+      const replaceBtn = card.querySelector('[data-act="replace"]');
+      if (replaceBtn) replaceBtn.addEventListener('click', () => {
+        replaceTargetId = m.id;
+        $('replaceFile').click();
+      });
+
+      const previewBtn = card.querySelector('[data-act="preview"]');
+      if (previewBtn) previewBtn.addEventListener('click', () => {
         $('previewTitle').textContent = m.label;
         const v = $('previewVideo'), img = $('previewImage');
         if (m.type === 'image') {
@@ -326,7 +347,8 @@
           .then(() => toast('Now playing on all TVs')).catch(e => toast(e.message, true));
       });
 
-      card.querySelector('[data-act="bday"]').addEventListener('click', () =>
+      const bdayBtn = card.querySelector('[data-act="bday"]');
+      if (bdayBtn) bdayBtn.addEventListener('click', () =>
         api('/api/settings', { method: 'POST', body: JSON.stringify({ birthdayMediaId: isBday ? null : m.id }) })
           .then(() => toast(isBday ? 'Birthday video unset' : `"${m.label}" is now the birthday video`))
           .catch(e => toast(e.message, true)));
@@ -372,6 +394,87 @@
       rows.appendChild(tr);
     }
   }
+
+  // ---------- slide editor ----------
+  let editingSlideId = null;
+  function slidePreviewRefresh() {
+    const p = $('slPreview');
+    p.style.background = `linear-gradient(135deg, ${$('slBg1').value}, ${$('slBg2').value})`;
+    p.style.color = $('slText').value;
+    p.innerHTML = '';
+    if ($('slBadge').value.trim()) {
+      const b = document.createElement('span'); b.className = 'sp-badge';
+      b.textContent = $('slBadge').value.trim(); p.appendChild(b);
+    }
+    const h = document.createElement('span'); h.className = 'sp-headline';
+    h.textContent = $('slHeadline').value.trim() || 'Headline'; p.appendChild(h);
+    if ($('slSub').value.trim()) {
+      const s = document.createElement('span'); s.className = 'sp-sub';
+      s.textContent = $('slSub').value.trim(); p.appendChild(s);
+    }
+  }
+  for (const id of ['slBadge', 'slHeadline', 'slSub', 'slBg1', 'slBg2', 'slText']) {
+    $(id).addEventListener('input', slidePreviewRefresh);
+  }
+
+  function openSlideModal(m) {
+    editingSlideId = m ? m.id : null;
+    $('slideModalTitle').textContent = m ? `Edit "${m.label}"` : 'Create slide';
+    const s = m ? m.slide : {};
+    $('slLabel').value = m ? m.label : '';
+    $('slBadge').value = s.badge || '';
+    $('slHeadline').value = s.headline || '';
+    $('slSub').value = s.subtext || '';
+    $('slBg1').value = s.bg?.[0] || '#ff6a00';
+    $('slBg2').value = s.bg?.[1] || '#d92b6a';
+    $('slText').value = s.textColor || '#ffffff';
+    $('slDur').value = m ? m.durationSec : 8;
+    $('slideError').textContent = '';
+    slidePreviewRefresh();
+    $('slideModal').classList.remove('hidden');
+  }
+  $('addSlideBtn').addEventListener('click', () => openSlideModal(null));
+  $('slideCancel').addEventListener('click', () => $('slideModal').classList.add('hidden'));
+  $('slideSave').addEventListener('click', async () => {
+    try {
+      await api('/api/slides', {
+        method: 'POST',
+        body: JSON.stringify({
+          id: editingSlideId,
+          label: $('slLabel').value,
+          durationSec: parseFloat($('slDur').value) || 8,
+          slide: {
+            bg: [$('slBg1').value, $('slBg2').value],
+            headline: $('slHeadline').value,
+            subtext: $('slSub').value,
+            badge: $('slBadge').value,
+            textColor: $('slText').value
+          }
+        })
+      });
+      $('slideModal').classList.add('hidden');
+      toast(editingSlideId ? 'Slide updated — live on every screen using it' : 'Slide created');
+    } catch (err) { $('slideError').textContent = err.message; }
+  });
+
+  // ---------- replace file ----------
+  let replaceTargetId = null;
+  $('replaceFile').addEventListener('change', e => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file || !replaceTargetId) return;
+    const form = new FormData();
+    form.append('file', file);
+    toast('Replacing file…');
+    fetch(`/api/media/${replaceTargetId}/replace`, {
+      method: 'POST', headers: { Authorization: 'Bearer ' + token }, body: form
+    }).then(async r => {
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error || 'Replace failed');
+      toast('File replaced — screens updated');
+    }).catch(err => toast(err.message, true))
+      .finally(() => { replaceTargetId = null; });
+  });
 
   // ---------- playlists ----------
   function renderPlaylists() {
@@ -436,7 +539,7 @@
           <input type="checkbox" ${it.enabled !== false ? 'checked' : ''}>
           <span class="knob"></span>
         </label>
-        <span class="row-timing">${m.type === 'image'
+        <span class="row-timing">${m.type !== 'video'
           ? `<input type="number" value="${it.durationSec || m.durationSec || 8}" min="1" max="3600"> s`
           : 'full video'}</span>
         <span class="row-actions">
@@ -490,7 +593,7 @@
       const item = document.createElement('div');
       item.className = 'picker-item';
       item.innerHTML = `${thumbHtml(m, 'row-thumb')}<span class="p-label">${esc(m.label)}</span>
-        <span class="hint">${m.type === 'image' ? 'photo' : 'video'}</span>`;
+        <span class="hint">${m.type}</span>`;
       item.addEventListener('click', () => {
         plEditing.items.push({ mediaId: m.id, enabled: true, durationSec: m.durationSec || 8 });
         renderPlRows();

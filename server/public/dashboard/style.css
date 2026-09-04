@@ -225,6 +225,25 @@ tr:last-child td { border-bottom: none; }
 .radio-row input { width: auto; }
 .radio-row .r-label { flex: 1; font-weight: 600; }
 
+/* ---- Slides ---- */
+.slide-preview, .slide-thumb {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 6px; text-align: center; border-radius: 8px; border: 1px solid var(--border);
+  overflow: hidden; padding: 12px;
+}
+.slide-preview { aspect-ratio: 16 / 9; }
+.slide-preview .sp-badge, .slide-thumb .sp-badge {
+  font-size: 10px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase;
+  border: 1px solid currentColor; border-radius: 999px; padding: 2px 10px;
+}
+.slide-preview .sp-headline { font-size: 24px; font-weight: 900; line-height: 1.15; overflow-wrap: anywhere; }
+.slide-preview .sp-sub { font-size: 13px; font-weight: 600; opacity: 0.92; }
+.slide-thumb .sp-headline { font-size: 12px; font-weight: 800; line-height: 1.1; overflow-wrap: anywhere; }
+.slide-thumb.row-thumb { padding: 2px 6px; gap: 1px; }
+.slide-thumb.row-thumb .sp-headline { font-size: 8px; }
+.slide-thumb.row-thumb .sp-badge, .slide-thumb.row-thumb .sp-sub { display: none; }
+.slide-thumb .sp-sub { font-size: 9px; opacity: 0.9; }
+
 /* ---- TV content panel ---- */
 .modal-card.sheet { max-width: 880px; }
 .sheet-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }

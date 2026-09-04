@@ -29,8 +29,8 @@
   let current = 0;            // index in playlist
   const imageA = document.getElementById('imageA');
   const imageB = document.getElementById('imageB');
-  const slotA = { video: videoA, image: imageA };
-  const slotB = { video: videoB, image: imageB };
+  const slotA = { video: videoA, image: imageA, slide: document.getElementById('slideA') };
+  const slotB = { video: videoB, image: imageB, slide: document.getElementById('slideB') };
   let activeSlot = slotA, standbySlot = slotB;
   let imageTimer = null;      // advances image slides after their duration
   let transitionMode = 'none';
@@ -45,6 +45,30 @@
   function hideSlot(slot) {
     slot.video.classList.remove('visible');
     slot.image.classList.remove('visible');
+    slot.slide.classList.remove('visible');
+  }
+
+  // Build a dashboard-made slide safely (text via textContent, never HTML).
+  function renderSlide(el, s) {
+    el.textContent = '';
+    el.style.background = `linear-gradient(135deg, ${s.bg[0]}, ${s.bg[1]})`;
+    el.style.color = s.textColor || '#ffffff';
+    if (s.badge) {
+      const b = document.createElement('div');
+      b.className = 's-badge';
+      b.textContent = s.badge;
+      el.appendChild(b);
+    }
+    const h = document.createElement('div');
+    h.className = 's-headline';
+    h.textContent = s.headline || '';
+    el.appendChild(h);
+    if (s.subtext) {
+      const sub = document.createElement('div');
+      sub.className = 's-sub';
+      sub.textContent = s.subtext;
+      el.appendChild(sub);
+    }
   }
 
   for (const v of [videoA, videoB, overrideVideo]) v.muted = !AUDIO;
@@ -181,7 +205,7 @@
   // slot shows the current item; the standby slot preloads the next one, so
   // item changes are instant — or a crossfade when the playlist uses fade.
   function setPlaylist(list) {
-    const key = JSON.stringify(list.map(x => [x.url, x.type, x.durationSec])) + '|' + transitionMode;
+    const key = JSON.stringify(list.map(x => [x.url, x.type, x.durationSec, x.slide || 0])) + '|' + transitionMode;
     if (key === playlistKey && !overrideEl.classList.contains('visible') && !off.classList.contains('visible')) {
       // Same playlist, already playing — don't restart mid-item.
       if (list.length > 0) { playlist = list; show('playlist'); resume(); return; }
@@ -198,7 +222,9 @@
     if (playlist.length === 0) { show('idle'); return; }
     const item = playlist[current];
     if (!item) { current = 0; startCurrent(); return; }
-    if (item.type === 'image') {
+    if (item.type === 'slide') {
+      startCurrent();
+    } else if (item.type === 'image') {
       if (activeSlot.image.src) {
         activeSlot.image.classList.add('visible');
         clearTimeout(imageTimer);
@@ -227,9 +253,18 @@
     standbySlot.video.pause();
     const slot = activeSlot;
 
-    if (item.type === 'image') {
+    if (item.type === 'slide') {
       slot.video.pause();
       slot.video.classList.remove('visible');
+      slot.image.classList.remove('visible');
+      renderSlide(slot.slide, item.slide || { bg: ['#222222', '#000000'], headline: item.label });
+      slot.slide.classList.add('visible');
+      errorStreak = 0;
+      if (playlist.length > 1) imageTimer = setTimeout(next, (item.durationSec || 8) * 1000);
+    } else if (item.type === 'image') {
+      slot.video.pause();
+      slot.video.classList.remove('visible');
+      slot.slide.classList.remove('visible');
       const armed = () => {
         slot.image.classList.add('visible');
         errorStreak = 0;
@@ -241,6 +276,7 @@
       else { slot.image.onload = armed; slot.image.src = item.url; }
     } else {
       slot.image.classList.remove('visible');
+      slot.slide.classList.remove('visible');
       slot.video.src = item.url;
       slot.video.loop = playlist.length === 1;
       slot.video.classList.add('visible');

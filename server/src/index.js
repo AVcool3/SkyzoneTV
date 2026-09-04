@@ -69,12 +69,19 @@ function tvOnline(tvId) {
 }
 
 const IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
-function mediaType(m) { return IMAGE_EXTS.includes(m.ext.toLowerCase()) ? 'image' : 'video'; }
+function mediaType(m) {
+  if (m.slide) return 'slide';
+  return IMAGE_EXTS.includes(m.ext.toLowerCase()) ? 'image' : 'video';
+}
+// Replacing a file gives it a fresh filename (fileId) so the players' 1-year
+// immutable cache can never serve stale content; the media id stays stable so
+// playlists and assignments keep working.
+function fileUrl(m) { return m.slide ? null : `/media/${m.fileId || m.id}${m.ext}`; }
 
 function mediaPublic(m) {
   return { id: m.id, label: m.label, originalName: m.originalName, size: m.size,
-    uploadedAt: m.uploadedAt, url: `/media/${m.id}${m.ext}`,
-    type: mediaType(m), durationSec: m.durationSec || 8 };
+    uploadedAt: m.uploadedAt, url: fileUrl(m),
+    type: mediaType(m), slide: m.slide || undefined, durationSec: m.durationSec || 8 };
 }
 
 function dashboardSnapshot() {
@@ -110,8 +117,9 @@ function dashboardSnapshot() {
 }
 
 function playerItem(m, durationSec) {
-  return { id: m.id, label: m.label, url: `/media/${m.id}${m.ext}`,
-    type: mediaType(m), durationSec: durationSec || m.durationSec || 8 };
+  return { id: m.id, label: m.label, url: fileUrl(m),
+    type: mediaType(m), slide: m.slide || undefined,
+    durationSec: durationSec || m.durationSec || 8 };
 }
 
 function playerState(tv) {
@@ -140,7 +148,8 @@ function playerState(tv) {
   }
   let override = null;
   if (tv.override) {
-    const m = tv.override.mediaId ? store.medium(tv.override.mediaId) : null;
+    let m = tv.override.mediaId ? store.medium(tv.override.mediaId) : null;
+    if (m && m.slide) m = null; // slides can't back a birthday takeover; use the theme
     // Custom themes are resolved to their spec at send time, so edits to a
     // theme apply to future (and re-pushed) takeovers immediately.
     let theme = tv.override.theme || 'party';
@@ -157,7 +166,7 @@ function playerState(tv) {
     override = {
       name: tv.override.name,
       message: tv.override.message || `Happy Birthday, ${tv.override.name}!`,
-      mediaUrl: m ? `/media/${m.id}${m.ext}` : null,
+      mediaUrl: m ? fileUrl(m) : null,
       endsAt: tv.override.endsAt,
       theme,
       themeSpec
@@ -395,6 +404,66 @@ app.post('/api/media', requireAuth, (req, res) => {
   });
 });
 
+// ---- Slides (media created and edited entirely in the dashboard) ----
+app.post('/api/slides', requireAuth, (req, res) => {
+  const { id, label, durationSec, slide } = req.body || {};
+  if (!slide || !slide.headline || !String(slide.headline).trim()) {
+    return res.status(400).json({ error: 'Slide needs a headline' });
+  }
+  const okColor = c => typeof c === 'string' && /^#[0-9a-fA-F]{6}$/.test(c);
+  const bg = Array.isArray(slide.bg) ? slide.bg.filter(okColor).slice(0, 2) : [];
+  if (bg.length < 2) return res.status(400).json({ error: 'Pick two background colors' });
+  const clean = {
+    bg,
+    headline: String(slide.headline).trim().slice(0, 80),
+    subtext: slide.subtext ? String(slide.subtext).slice(0, 120) : '',
+    badge: slide.badge ? String(slide.badge).slice(0, 40) : '',
+    textColor: okColor(slide.textColor) ? slide.textColor : '#ffffff'
+  };
+  let m = id ? store.medium(id) : null;
+  if (m && !m.slide) return res.status(400).json({ error: 'That media is a file, not a slide' });
+  if (!m) {
+    m = {
+      id: crypto.randomUUID(),
+      label: '', originalName: null, ext: '', size: 0,
+      uploadedAt: new Date().toISOString()
+    };
+    store.data.media.push(m);
+  }
+  m.slide = clean;
+  if (typeof label === 'string' && label.trim()) m.label = label.trim().slice(0, 80);
+  if (!m.label) m.label = clean.headline.slice(0, 40);
+  const d = parseFloat(durationSec);
+  if (Number.isFinite(d)) m.durationSec = Math.min(Math.max(d, 1), 3600);
+  store.save();
+  pushAllTvs();
+  pushDashboards();
+  res.json({ ok: true, media: mediaPublic(m) });
+});
+
+// Swap the file behind an existing photo/video while keeping its identity —
+// it stays in every playlist and assignment, and screens refresh instantly.
+app.post('/api/media/:id/replace', requireAuth, (req, res) => {
+  const m = store.medium(req.params.id);
+  if (!m) return res.status(404).json({ error: 'No such media' });
+  if (m.slide) return res.status(400).json({ error: 'Slides are edited in the dashboard, not replaced' });
+  upload.single('file')(req, res, err => {
+    if (err) return res.status(400).json({ error: err.message });
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    const oldPath = path.join(MEDIA_DIR, (m.fileId || m.id) + m.ext);
+    const ext = path.extname(req.file.filename);
+    m.fileId = path.basename(req.file.filename, ext);
+    m.ext = ext;
+    m.size = req.file.size;
+    m.originalName = req.file.originalname;
+    try { fs.unlinkSync(oldPath); } catch {}
+    store.save();
+    pushAllTvs();
+    pushDashboards();
+    res.json({ ok: true, media: mediaPublic(m) });
+  });
+});
+
 app.patch('/api/media/:id', requireAuth, (req, res) => {
   const m = store.medium(req.params.id);
   if (!m) return res.status(404).json({ error: 'No such media' });
@@ -434,7 +503,7 @@ app.delete('/api/media/:id', requireAuth, (req, res) => {
   }
   for (const ev of store.data.events) if (ev.mediaId === m.id) ev.mediaId = null;
   if (store.data.settings.birthdayMediaId === m.id) store.data.settings.birthdayMediaId = null;
-  try { fs.unlinkSync(path.join(MEDIA_DIR, m.id + m.ext)); } catch {}
+  if (!m.slide) { try { fs.unlinkSync(path.join(MEDIA_DIR, (m.fileId || m.id) + m.ext)); } catch {} }
   store.save();
   for (const id of touched) pushTv(id);
   pushDashboards();

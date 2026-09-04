@@ -152,6 +152,41 @@ const run = async () => {
   state = (await api(token, 'GET', '/api/state')).data;
   check('deleting playlist frees tvs', state.tvs.every(t => t.playlistId === null));
 
+  // slides: create in the UI, edit any time, no file behind them
+  const slideRes = await api(token, 'POST', '/api/slides', {
+    label: 'smoke-slide', durationSec: 6,
+    slide: { bg: ['#ff6a00', '#d92b6a'], headline: 'Pizza + Drink $8.99', subtext: 'At the cafe', badge: 'TODAY', textColor: '#ffffff' }
+  });
+  check('slide created', slideRes.status === 200 && slideRes.data.media?.type === 'slide');
+  const slideId = slideRes.data.media.id;
+  await api(token, 'POST', '/api/slides', {
+    id: slideId, label: 'smoke-slide',
+    slide: { bg: ['#111111', '#222222'], headline: 'Updated deal $9.99', textColor: '#ffffff' }
+  });
+  state = (await api(token, 'GET', '/api/state')).data;
+  check('slide editable in place', state.media.find(x => x.id === slideId)?.slide?.headline === 'Updated deal $9.99');
+  const badSlide = await api(token, 'POST', '/api/slides', { slide: { bg: ['#123456', '#654321'] } });
+  check('slide requires headline', badSlide.status === 400);
+
+  // replace file keeps identity but changes the served URL (cache busting)
+  const beforeUrl = (await api(token, 'GET', '/api/state')).data.media.find(x => x.id === mediaId).url;
+  const repForm = new FormData();
+  repForm.append('file', new Blob([new Uint8Array(2000)], { type: 'video/mp4' }), 'smoke-replaced.mp4');
+  const rep = await fetch(BASE + `/api/media/${mediaId}/replace`, {
+    method: 'POST', headers: { Authorization: 'Bearer ' + token }, body: repForm
+  }).then(r => r.json());
+  check('replace works', rep.ok === true && rep.media.size === 2000);
+  check('replace keeps media id', rep.media.id === mediaId);
+  check('replace changes served url', rep.media.url !== beforeUrl);
+  state = (await api(token, 'GET', '/api/state')).data;
+  check('replaced media still assigned to tvs', state.tvs.every(t => t.assignedMediaIds.includes(mediaId)));
+  const served = await fetch(BASE + rep.media.url, { method: 'HEAD' });
+  check('replaced file is served', served.status === 200);
+
+  await api(token, 'DELETE', `/api/media/${slideId}`);
+  state = (await api(token, 'GET', '/api/state')).data;
+  check('slide deletable', !state.media.some(x => x.id === slideId));
+
   // CSV import (uses named TV; far-future dates so nothing fires during the test)
   const uploadCsv = async body => {
     const f = new FormData();
