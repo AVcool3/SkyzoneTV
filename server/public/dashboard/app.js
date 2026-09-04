@@ -519,6 +519,7 @@
 
   // Playlist editor: works on a local copy of items until Save Changes.
   let plEditing = { id: null, items: [] };
+  let plDragIdx = null;
 
   function renderPlRows() {
     const box = $('plRows');
@@ -533,6 +534,7 @@
       const row = document.createElement('div');
       row.className = 'pl-row' + (it.enabled === false ? ' disabled' : '');
       row.innerHTML = `
+        <span class="drag-handle" title="Drag to reorder">⠿</span>
         ${thumbHtml(m, 'row-thumb')}
         <span class="row-name">${esc(m.label)}</span>
         <label class="switch" title="Play this slide">
@@ -553,6 +555,45 @@
       });
       const timing = row.querySelector('.row-timing input');
       if (timing) timing.addEventListener('change', () => { it.durationSec = parseFloat(timing.value) || 8; });
+      // drag-and-drop reorder (handle-initiated so inputs stay usable);
+      // the ↑↓ arrows remain as the touch-screen fallback
+      const handle = row.querySelector('.drag-handle');
+      handle.addEventListener('mousedown', () => { row.draggable = true; });
+      handle.addEventListener('mouseup', () => { row.draggable = false; });
+      row.addEventListener('dragstart', e => {
+        plDragIdx = idx;
+        row.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', String(idx));
+      });
+      row.addEventListener('dragend', () => {
+        row.draggable = false;
+        row.classList.remove('dragging');
+        box.querySelectorAll('.pl-row').forEach(r => r.classList.remove('drop-before', 'drop-after'));
+      });
+      row.addEventListener('dragover', e => {
+        if (plDragIdx === null || plDragIdx === idx) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        const r = row.getBoundingClientRect();
+        const before = e.clientY < r.top + r.height / 2;
+        row.classList.toggle('drop-before', before);
+        row.classList.toggle('drop-after', !before);
+      });
+      row.addEventListener('dragleave', () => row.classList.remove('drop-before', 'drop-after'));
+      row.addEventListener('drop', e => {
+        if (plDragIdx === null || plDragIdx === idx) return;
+        e.preventDefault();
+        const r = row.getBoundingClientRect();
+        const before = e.clientY < r.top + r.height / 2;
+        let to = idx + (before ? 0 : 1);
+        const [moved] = plEditing.items.splice(plDragIdx, 1);
+        if (plDragIdx < to) to--;
+        plEditing.items.splice(to, 0, moved);
+        plDragIdx = null;
+        renderPlRows();
+      });
+
       row.querySelector('[data-act="up"]').addEventListener('click', () => {
         plEditing.items.splice(idx - 1, 0, plEditing.items.splice(idx, 1)[0]);
         renderPlRows();
