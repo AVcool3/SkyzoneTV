@@ -53,7 +53,19 @@ class MainActivity : AppCompatActivity() {
                 view: WebView, request: WebResourceRequest, error: WebResourceError
             ) {
                 if (request.isForMainFrame) {
-                    // Server briefly down (e.g. being restarted): retry until it's back.
+                    // Never show the stock "Webpage not available" browser page:
+                    // paint a branded connecting screen and retry until it's back.
+                    view.loadDataWithBaseURL(
+                        null,
+                        """<!DOCTYPE html><html><body style="margin:0;background:#000;height:100vh;
+                           display:flex;flex-direction:column;align-items:center;justify-content:center;
+                           font-family:sans-serif;color:#fff">
+                           <div style="font-size:8vmin;font-weight:800;letter-spacing:.04em">
+                             SKY<span style="color:#ff6a00">ZONE</span> TV</div>
+                           <div style="font-size:3vmin;color:#9aa0b4;margin-top:3vmin">Connecting…</div>
+                           </body></html>""",
+                        "text/html", "utf-8", null
+                    )
                     view.postDelayed({ view.loadUrl(playerUrl()) }, 5000)
                 }
             }
