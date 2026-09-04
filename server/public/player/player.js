@@ -146,6 +146,18 @@
     clearTimeout(errorRetryTimer);
     errorRetryTimer = null;
 
+    if (msg.approved === false) {
+      // Waiting for dashboard approval (cloud mode): show the pairing code.
+      show('idle');
+      idleName.textContent = msg.pairCode ? `Code ${msg.pairCode}` : (msg.tv && msg.tv.name) || '';
+      idleConn.textContent = '';
+      document.getElementById('idleHint').textContent =
+        'Waiting for approval — open the dashboard, find this code on the TVs tab, and press Approve.';
+      reportStatus();
+      return;
+    }
+    document.getElementById('idleHint').textContent =
+      'This screen is registered. Open the dashboard to name this TV and assign media to it.';
     if (msg.power === 'off') {
       show('off');
       reportStatus();

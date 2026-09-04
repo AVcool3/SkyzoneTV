@@ -16,6 +16,10 @@ const ROOT = path.join(__dirname, '..');
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, 'data');
 const MEDIA_DIR = path.join(DATA_DIR, 'media');
 const PORT = parseInt(process.env.PORT || '8080', 10);
+// Cloud mode: new TVs must be approved in the dashboard before they receive
+// content (anyone on the internet can open the player URL; approval is what
+// makes that safe). Leave unset on a LAN for instant pairing.
+const REQUIRE_TV_APPROVAL = process.env.REQUIRE_TV_APPROVAL === '1' || process.env.REQUIRE_TV_APPROVAL === 'true';
 
 fs.mkdirSync(MEDIA_DIR, { recursive: true });
 const store = new Store(path.join(DATA_DIR, 'db.json'));
@@ -81,6 +85,8 @@ function dashboardSnapshot() {
       lastSeen: t.lastSeen, assignedMediaIds: t.assignedMediaIds,
       playlistId: t.playlistId || null,
       fit: t.fit || 'contain',
+      approved: t.approved !== false,
+      pairCode: t.approved === false ? t.pairCode : undefined,
       nowPlaying: t.nowPlaying || null,
       override: t.override ? { name: t.override.name, endsAt: t.override.endsAt } : null
     })),
@@ -109,6 +115,12 @@ function playerItem(m, durationSec) {
 }
 
 function playerState(tv) {
+  // Unapproved screens get no content — just their pairing code.
+  if (tv.approved === false) {
+    return { type: 'state', tv: { id: tv.id, name: tv.name }, power: 'on',
+      approved: false, pairCode: tv.pairCode || '', fit: 'contain',
+      playlist: [], transition: 'none', override: null };
+  }
   // A TV plays either a named playlist (resolved live, so playlist edits hit
   // the screen immediately) or its own custom selection.
   let playlist = [];
@@ -152,7 +164,7 @@ function playerState(tv) {
     };
   }
   return { type: 'state', tv: { id: tv.id, name: tv.name }, power: tv.power,
-    fit: tv.fit || 'contain', playlist, transition, override };
+    approved: true, fit: tv.fit || 'contain', playlist, transition, override };
 }
 
 function pushTv(tvId) {
@@ -177,7 +189,22 @@ function pushDashboards() {
 // HTTP app
 // ---------------------------------------------------------------------------
 const app = express();
+app.set('trust proxy', 1); // correct client IPs behind a cloud HTTPS proxy
 app.use(express.json({ limit: '1mb' }));
+
+// Brute-force protection on the dashboard password.
+const loginAttempts = new Map(); // ip -> { count, resetAt }
+function loginLimited(ip) {
+  const now = Date.now();
+  const entry = loginAttempts.get(ip);
+  if (!entry || now > entry.resetAt) {
+    loginAttempts.set(ip, { count: 1, resetAt: now + 15 * 60_000 });
+    if (loginAttempts.size > 10000) loginAttempts.clear();
+    return false;
+  }
+  entry.count++;
+  return entry.count > 10;
+}
 
 // Static: dashboard, player, media files (range requests supported by express.static)
 app.use('/media', express.static(MEDIA_DIR, { maxAge: '365d', immutable: true }));
@@ -186,6 +213,9 @@ app.get('/', (req, res) => res.redirect('/dashboard/'));
 
 // ---- Auth ----
 app.post('/api/login', (req, res) => {
+  if (loginLimited(req.ip)) {
+    return res.status(429).json({ error: 'Too many attempts — try again in 15 minutes' });
+  }
   const { password } = req.body || {};
   if (typeof password !== 'string' ||
       password.length !== ADMIN_PASSWORD.length ||
@@ -214,6 +244,10 @@ app.post('/api/player/register', (req, res) => {
       createdAt: new Date().toISOString(),
       lastSeen: new Date().toISOString(),
       power: 'on',
+      // In cloud mode a new screen shows this code and waits until someone
+      // hits Approve in the dashboard; on a LAN it's approved instantly.
+      approved: !REQUIRE_TV_APPROVAL,
+      pairCode: String(100000 + crypto.randomInt(900000)),
       assignedMediaIds: [],
       playlistId: null,
       nowPlaying: null,
@@ -235,6 +269,16 @@ app.patch('/api/tvs/:id', requireAuth, (req, res) => {
   const { name, fit } = req.body || {};
   if (typeof name === 'string' && name.trim()) tv.name = name.trim().slice(0, 60);
   if (fit === 'contain' || fit === 'cover') tv.fit = fit;
+  store.save();
+  pushTv(tv.id);
+  pushDashboards();
+  res.json({ ok: true });
+});
+
+app.post('/api/tvs/:id/approve', requireAuth, (req, res) => {
+  const tv = store.tv(req.params.id);
+  if (!tv) return res.status(404).json({ error: 'No such TV' });
+  tv.approved = true;
   store.save();
   pushTv(tv.id);
   pushDashboards();

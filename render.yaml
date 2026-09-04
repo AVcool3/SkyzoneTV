@@ -1,0 +1,20 @@
+# One-click Render deploy: render.com -> New -> Blueprint -> pick this repo.
+# Gives you HTTPS, a permanent URL, auto-deploy on every push, and a
+# persistent disk for uploaded media + settings.
+services:
+  - type: web
+    name: skyzone-tv
+    runtime: node
+    rootDir: server
+    buildCommand: npm install --omit=dev
+    startCommand: node src/index.js
+    plan: starter
+    disk:
+      name: skyzone-data
+      mountPath: /data
+      sizeGB: 20
+    envVars:
+      - key: DATA_DIR
+        value: /data
+      - key: REQUIRE_TV_APPROVAL
+        value: "1"

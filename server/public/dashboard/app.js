@@ -169,6 +169,29 @@
       return;
     }
     for (const tv of state.tvs) {
+      if (tv.approved === false) {
+        // Screen waiting for approval (cloud pairing)
+        const pend = document.createElement('div');
+        pend.className = 'tv-card' + (tv.online ? '' : ' offline');
+        pend.innerHTML = `
+          <div class="tv-head"><span class="tv-name" style="flex:1">📺 New screen</span></div>
+          <div class="tv-badges">
+            <span class="badge ${tv.online ? 'online' : 'offline'}">${tv.online ? 'ONLINE' : 'OFFLINE'}</span>
+            <span class="badge bday">WAITING FOR APPROVAL</span>
+          </div>
+          <div class="tv-now">Pairing code on its screen: <strong>${esc(tv.pairCode || '?')}</strong></div>
+          <div class="tv-actions">
+            <button class="btn tiny primary" data-act="approve">✓ Approve</button>
+            <button class="btn tiny danger" data-act="reject">✕ Reject</button>
+          </div>`;
+        pend.querySelector('[data-act="approve"]').addEventListener('click', () =>
+          api(`/api/tvs/${tv.id}/approve`, { method: 'POST' })
+            .then(() => toast('Screen approved — name it and give it content')).catch(e => toast(e.message, true)));
+        pend.querySelector('[data-act="reject"]').addEventListener('click', () =>
+          api(`/api/tvs/${tv.id}`, { method: 'DELETE' }).then(() => toast('Screen rejected')).catch(e => toast(e.message, true)));
+        grid.appendChild(pend);
+        continue;
+      }
       const card = document.createElement('div');
       card.className = 'tv-card' + (tv.online ? '' : ' offline');
       const pl = tv.playlistId ? (state.playlists || []).find(p => p.id === tv.playlistId) : null;
