@@ -1,0 +1,8 @@
+node_modules/
+server/data/
+*.log
+.DS_Store
+android-player/.gradle/
+android-player/build/
+android-player/app/build/
+android-player/local.properties
