@@ -93,7 +93,7 @@ public internet.
 ### Any Google TV / Android TV device (built-in TVs, onn boxes, Chromecast)
 
 Works for TVs with Google TV built in and for plug-in boxes like the
-**onn. 4K / 4K Plus**. Two app choices — the **Skyzone TV Player app**
+**onn. 4K / 4K Plus**. Two app choices — the **ParkCast Player app**
 (recommended: our own app, served by your own server, no third-party
 software) or Fully Kiosk (an off-the-shelf kiosk browser).
 
@@ -110,7 +110,7 @@ Common first steps on the device:
    Settings → Privacy → Security & Restrictions, or Settings → Apps →
    Special app access → Install unknown apps.
 
-**Option A — Skyzone TV Player app (recommended):**
+**Option A — ParkCast Player app (recommended):**
 
 4. Open Downloader → enter `http://YOUR-SERVER-IP:8080/skyzone-player.apk`
    (the server hosts the app itself) → Install → Open.
@@ -169,7 +169,7 @@ after power cuts, Wi-Fi drops, and server restarts.
 
 ### About the native app
 
-`android-player/` is the source of the **Skyzone TV Player** app; a prebuilt
+`android-player/` is the source of the **ParkCast Player** app; a prebuilt
 APK ships at `server/public/skyzone-player.apk`, so every server automatically
 hosts the app for its own TVs at `http://YOUR-SERVER-IP:8080/skyzone-player.apk`
 (that's what Option A above installs). It boots straight into the player,

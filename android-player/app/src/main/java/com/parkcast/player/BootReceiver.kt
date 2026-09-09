@@ -1,4 +1,4 @@
-package com.skyzone.tvplayer
+package com.parkcast.player
 
 import android.content.BroadcastReceiver
 import android.content.Context

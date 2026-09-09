@@ -1,4 +1,4 @@
-package com.skyzone.tvplayer
+package com.parkcast.player
 
 import android.annotation.SuppressLint
 import android.app.AlertDialog
@@ -20,7 +20,7 @@ import android.widget.EditText
 import androidx.appcompat.app.AppCompatActivity
 
 /**
- * Full-screen kiosk WebView that loads the Skyzone TV player page.
+ * Full-screen kiosk WebView that loads the ParkCast player page.
  * First boot asks for the server URL (e.g. http://192.168.1.50:8080/player/),
  * stores it, and auto-loads it on every launch. Press MENU (☰) on the remote
  * to change the URL later. Auto-retries if the server is unreachable.
@@ -28,7 +28,7 @@ import androidx.appcompat.app.AppCompatActivity
 class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
-    private val prefs by lazy { getSharedPreferences("skyzone", MODE_PRIVATE) }
+    private val prefs by lazy { getSharedPreferences("parkcast", MODE_PRIVATE) }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -61,7 +61,7 @@ class MainActivity : AppCompatActivity() {
                            display:flex;flex-direction:column;align-items:center;justify-content:center;
                            font-family:sans-serif;color:#fff">
                            <div style="font-size:8vmin;font-weight:800;letter-spacing:.04em">
-                             SKY<span style="color:#ff6a00">ZONE</span> TV</div>
+                             PARK<span style="color:#ff6a00">CAST</span></div>
                            <div style="font-size:3vmin;color:#9aa0b4;margin-top:3vmin">Connecting…</div>
                            </body></html>""",
                         "text/html", "utf-8", null
@@ -87,16 +87,16 @@ class MainActivity : AppCompatActivity() {
     private fun ensureBootPermission() {
         if (Settings.canDrawOverlays(this)) return
         AlertDialog.Builder(this)
-            .setTitle("Allow auto-start after power loss")
-            .setMessage("Enable \"Display over other apps\" for Skyzone TV Player so the player relaunches by itself when the box reboots.")
-            .setPositiveButton("Open setting") { _, _ ->
+            .setTitle(getString(R.string.boot_title))
+            .setMessage(getString(R.string.boot_message))
+            .setPositiveButton(getString(R.string.boot_open)) { _, _ ->
                 try {
                     startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
                 } catch (e: Exception) {
                     try { startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)) } catch (_: Exception) {}
                 }
             }
-            .setNegativeButton("Later", null)
+            .setNegativeButton(getString(R.string.boot_later), null)
             .show()
     }
 
@@ -115,11 +115,11 @@ class MainActivity : AppCompatActivity() {
             setText(prefs.getString("serverUrl", ""))
         }
         AlertDialog.Builder(this)
-            .setTitle("Skyzone TV server address")
-            .setMessage("Enter the server address shown when the server starts (IP + port).")
+            .setTitle(getString(R.string.setup_title))
+            .setMessage(getString(R.string.setup_message))
             .setView(input)
             .setCancelable(prefs.contains("serverUrl"))
-            .setPositiveButton("Connect") { _, _ ->
+            .setPositiveButton(getString(R.string.setup_connect)) { _, _ ->
                 prefs.edit().putString("serverUrl", input.text.toString().trim()).apply()
                 webView.loadUrl(playerUrl())
             }

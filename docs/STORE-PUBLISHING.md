@@ -67,18 +67,20 @@ demo in the **App access** notes:
    playlist assigned to all TVs — any screen that connects starts playing
    content immediately, no approval step.
 2. In App access / testing notes, write: "Enter server address
-   `https://skyzone-demo.onrender.com` when prompted. The screen will begin
+   `https://parkcast-demo.onrender.com` when prompted. The screen will begin
    playing demo signage content automatically."
 
 ## Honest risk assessment
 
-- **The name.** "Skyzone TV Player," published from a personal account, uses
-  the Sky Zone trademark. Store impersonation/IP policies can flag it, and
-  the brand owner can file a takedown even after approval. Options: get
-  written authorization from your franchise/corporate contact and keep it on
-  file for an appeal, or publish under a neutral name (the rename is a small
-  code change). For your own 12 TVs, sideloading (Downloader →
-  `/skyzone-player.apk`) avoids all of this entirely.
+- **The name.** The store app is published as **ParkCast Player**
+  (`com.parkcast.player`) — a neutral name with no third-party trademark in
+  it, so store impersonation/IP policies don't apply. Before submitting, do
+  a five-minute availability check: search "ParkCast" on Google Play, the
+  Amazon Appstore, and tmsearch.uspto.gov; if something conflicting shows
+  up, pick another neutral name (it's a one-file rename in
+  `res/values/strings.xml` plus the two graphics). For your own 12 TVs,
+  sideloading (Downloader → `/skyzone-player.apk`) needs no store review at
+  all.
 - **"Display over other apps" permission**: allowed, occasionally
   questioned. If review asks, the justification is: kiosk signage device
   must relaunch automatically after power loss without human interaction.

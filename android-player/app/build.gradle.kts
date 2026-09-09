@@ -14,11 +14,11 @@ val keystoreProps = Properties().apply {
 }
 
 android {
-    namespace = "com.skyzone.tvplayer"
+    namespace = "com.parkcast.player"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.skyzone.tvplayer"
+        applicationId = "com.parkcast.player"
         minSdk = 22          // Fire TV Stick (2nd gen+) and all Google TV devices
         targetSdk = 36       // current Google Play target requirement
         versionCode = 2
