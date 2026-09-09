@@ -1,23 +1,43 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
 
+// Release signing: keystore/upload.jks (kept in this private repo so builds
+// are reproducible anywhere; enroll in Play App Signing so a lost upload key
+// can be reset by Google).
+val keystoreProps = Properties().apply {
+    val f = rootProject.file("keystore/keystore.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+
 android {
     namespace = "com.skyzone.tvplayer"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.skyzone.tvplayer"
         minSdk = 22          // Fire TV Stick (2nd gen+) and all Google TV devices
-        targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        targetSdk = 36       // current Google Play target requirement
+        versionCode = 2
+        versionName = "1.1"
+    }
+
+    signingConfigs {
+        create("release") {
+            storeFile = rootProject.file(keystoreProps.getProperty("storeFile", "keystore/upload.jks"))
+            storePassword = keystoreProps.getProperty("storePassword", "")
+            keyAlias = keystoreProps.getProperty("keyAlias", "skyzone")
+            keyPassword = keystoreProps.getProperty("keyPassword", "")
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {
