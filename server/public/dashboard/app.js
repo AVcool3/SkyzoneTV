@@ -145,6 +145,18 @@
     renderThemes();
   }
 
+  // Media grouped for pickers: root items first, then one group per folder.
+  function mediaGroups() {
+    const groups = [];
+    const root = state.media.filter(m => !m.folderId);
+    if (root.length) groups.push({ name: null, items: root });
+    for (const f of state.folders || []) {
+      const items = state.media.filter(m => m.folderId === f.id);
+      if (items.length) groups.push({ name: f.name, items });
+    }
+    return groups;
+  }
+
   function thumbHtml(m, cls = 'thumb') {
     // Photos show themselves; videos show their first frame; slides render live.
     if (m.type === 'slide') {
@@ -262,14 +274,81 @@
     }
   }
 
+  // Which library folder is open ('all' = everything). Uploads and new
+  // slides land in the open folder.
+  let currentFolder = 'all';
+
+  function renderFolderBar() {
+    const bar = $('folderBar');
+    bar.innerHTML = '';
+    const folders = state.folders || [];
+    if (currentFolder !== 'all' && !folders.some(f => f.id === currentFolder)) currentFolder = 'all';
+
+    const mkChip = (label, active, onClick) => {
+      const chip = document.createElement('button');
+      chip.className = 'chip' + (active ? ' on' : '');
+      chip.textContent = label;
+      chip.addEventListener('click', onClick);
+      bar.appendChild(chip);
+      return chip;
+    };
+
+    mkChip(`🗂 All media (${state.media.length})`, currentFolder === 'all', () => { currentFolder = 'all'; renderMedia(); });
+    for (const f of folders) {
+      const count = state.media.filter(m => m.folderId === f.id).length;
+      const active = currentFolder === f.id;
+      mkChip(`📁 ${f.name} (${count})`, active, () => { currentFolder = f.id; renderMedia(); });
+      if (active) {
+        const ren = document.createElement('button');
+        ren.className = 'btn tiny';
+        ren.textContent = '✏';
+        ren.title = 'Rename folder';
+        ren.addEventListener('click', () => {
+          const name = prompt('Folder name:', f.name);
+          if (!name) return;
+          api('/api/folders', { method: 'POST', body: JSON.stringify({ id: f.id, name }) })
+            .then(() => toast('Folder renamed')).catch(e => toast(e.message, true));
+        });
+        bar.appendChild(ren);
+        const del = document.createElement('button');
+        del.className = 'btn tiny danger';
+        del.textContent = '✕';
+        del.title = 'Delete folder (media moves back to All)';
+        del.addEventListener('click', () => {
+          if (!confirm(`Delete folder "${f.name}"? Its media moves back to the library — nothing is deleted.`)) return;
+          api(`/api/folders/${f.id}`, { method: 'DELETE' })
+            .then(() => { currentFolder = 'all'; toast('Folder deleted'); }).catch(e => toast(e.message, true));
+        });
+        bar.appendChild(del);
+      }
+    }
+    const add = document.createElement('button');
+    add.className = 'btn tiny';
+    add.textContent = '＋ New folder';
+    add.addEventListener('click', () => {
+      const name = prompt('Folder name:', 'Promotions');
+      if (!name) return;
+      api('/api/folders', { method: 'POST', body: JSON.stringify({ name }) })
+        .then(r => { currentFolder = r.folder.id; toast(`Folder "${r.folder.name}" created — uploads now land in it`); })
+        .catch(e => toast(e.message, true));
+    });
+    bar.appendChild(add);
+  }
+
   function renderMedia() {
+    renderFolderBar();
     const list = $('mediaList');
     list.innerHTML = '';
     if (state.media.length === 0) {
       list.innerHTML = '<p class="hint">No media yet. Upload an MP4 to get started.</p>';
       return;
     }
-    for (const m of state.media) {
+    const visible = currentFolder === 'all' ? state.media : state.media.filter(m => m.folderId === currentFolder);
+    if (visible.length === 0) {
+      list.innerHTML = '<p class="hint">This folder is empty — uploads and new slides land here while it\'s open.</p>';
+      return;
+    }
+    for (const m of visible) {
       const isBday = state.settings.birthdayMediaId === m.id;
       const usedBy = state.tvs.filter(t => t.assignedMediaIds.includes(m.id)).length;
       const inPlaylists = (state.playlists || []).filter(p => p.items.some(it => it.mediaId === m.id)).length;
@@ -290,7 +369,11 @@
           <button class="btn tiny" data-act="all">Apply to all TVs</button>
           ${m.type !== 'slide' ? `<button class="btn tiny" data-act="bday">${isBday ? 'Unset birthday' : 'Set as birthday'}</button>` : ''}
           <button class="btn tiny danger" data-act="del">Delete</button>
-        </div>`;
+        </div>
+        ${(state.folders || []).length ? `<div class="m-duration">📁 <select class="m-folder">
+          <option value="">No folder</option>
+          ${(state.folders || []).map(f => `<option value="${esc(f.id)}" ${m.folderId === f.id ? 'selected' : ''}>${esc(f.name)}</option>`).join('')}
+        </select></div>` : ''}`;
 
       const label = card.querySelector('.m-label');
       label.addEventListener('change', () =>
@@ -302,6 +385,12 @@
       if (durInput) durInput.addEventListener('change', () =>
         api(`/api/media/${m.id}`, { method: 'PATCH', body: JSON.stringify({ durationSec: parseFloat(durInput.value) }) })
           .then(() => toast('Slide timing updated')).catch(e => toast(e.message, true)));
+
+      const folderSel = card.querySelector('.m-folder');
+      if (folderSel) folderSel.addEventListener('change', () =>
+        api(`/api/media/${m.id}`, { method: 'PATCH', body: JSON.stringify({ folderId: folderSel.value || null }) })
+          .then(() => toast(folderSel.value ? 'Moved to folder' : 'Moved out of folder'))
+          .catch(e => toast(e.message, true)));
 
       const editSlideBtn = card.querySelector('[data-act="editslide"]');
       if (editSlideBtn) editSlideBtn.addEventListener('click', () => openSlideModal(m));
@@ -442,6 +531,7 @@
         body: JSON.stringify({
           id: editingSlideId,
           label: $('slLabel').value,
+          folderId: editingSlideId ? undefined : (currentFolder !== 'all' ? currentFolder : null),
           durationSec: parseFloat($('slDur').value) || 8,
           slide: {
             bg: [$('slBg1').value, $('slBg2').value],
@@ -630,17 +720,27 @@
   $('plAddMedia').addEventListener('click', () => {
     const list = $('plMediaList');
     list.innerHTML = state.media.length ? '' : '<p class="hint">Upload media first.</p>';
-    for (const m of state.media) {
-      const item = document.createElement('div');
-      item.className = 'picker-item';
-      item.innerHTML = `${thumbHtml(m, 'row-thumb')}<span class="p-label">${esc(m.label)}</span>
-        <span class="hint">${m.type}</span>`;
-      item.addEventListener('click', () => {
-        plEditing.items.push({ mediaId: m.id, enabled: true, durationSec: m.durationSec || 8 });
-        renderPlRows();
-        toast(`Added "${m.label}"`);
-      });
-      list.appendChild(item);
+    const groups = mediaGroups();
+    for (const g of groups) {
+      if (g.name && groups.length > 1) {
+        const head = document.createElement('div');
+        head.className = 'sheet-label';
+        head.style.margin = '8px 0 2px';
+        head.textContent = `📁 ${g.name}`;
+        list.appendChild(head);
+      }
+      for (const m of g.items) {
+        const item = document.createElement('div');
+        item.className = 'picker-item';
+        item.innerHTML = `${thumbHtml(m, 'row-thumb')}<span class="p-label">${esc(m.label)}</span>
+          <span class="hint">${m.type}</span>`;
+        item.addEventListener('click', () => {
+          plEditing.items.push({ mediaId: m.id, enabled: true, durationSec: m.durationSec || 8 });
+          renderPlRows();
+          toast(`Added "${m.label}"`);
+        });
+        list.appendChild(item);
+      }
     }
     $('plMediaModal').classList.remove('hidden');
   });
@@ -904,7 +1004,16 @@
     list.innerHTML = '';
     let order = [...selectedIds];   // selection order = play order
     if (state.media.length === 0) list.innerHTML = '<p class="hint">Upload media first.</p>';
-    for (const m of state.media) {
+    const groups = mediaGroups();
+    for (const g of groups) {
+      if (g.name && groups.length > 1) {
+        const head = document.createElement('div');
+        head.className = 'sheet-label';
+        head.style.margin = '8px 0 2px';
+        head.textContent = `📁 ${g.name}`;
+        list.appendChild(head);
+      }
+      for (const m of g.items) {
       const item = document.createElement('label');
       item.className = 'picker-item';
       item.innerHTML = `
@@ -920,6 +1029,7 @@
       });
       item.dataset.mediaId = m.id;
       list.appendChild(item);
+      }
     }
     function refreshOrders() {
       for (const item of list.querySelectorAll('.picker-item')) {
@@ -970,6 +1080,8 @@
     progressBox.classList.remove('hidden');
     $('uploadLabel').textContent = `${file.name} (${uploadQueue.length} more queued)`;
     const form = new FormData();
+    // folder must precede the file so the server sees it during upload parsing
+    if (currentFolder !== 'all') form.append('folderId', currentFolder);
     form.append('file', file);
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/media');

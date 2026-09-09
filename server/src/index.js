@@ -81,7 +81,12 @@ function fileUrl(m) { return m.slide ? null : `/media/${m.fileId || m.id}${m.ext
 function mediaPublic(m) {
   return { id: m.id, label: m.label, originalName: m.originalName, size: m.size,
     uploadedAt: m.uploadedAt, url: fileUrl(m),
-    type: mediaType(m), slide: m.slide || undefined, durationSec: m.durationSec || 8 };
+    type: mediaType(m), slide: m.slide || undefined, durationSec: m.durationSec || 8,
+    folderId: m.folderId || null };
+}
+
+function validFolderId(folderId) {
+  return folderId && store.data.folders.some(f => f.id === folderId) ? folderId : null;
 }
 
 function dashboardSnapshot() {
@@ -98,6 +103,7 @@ function dashboardSnapshot() {
       override: t.override ? { name: t.override.name, endsAt: t.override.endsAt } : null
     })),
     media: store.data.media.map(mediaPublic),
+    folders: store.data.folders,
     playlists: store.data.playlists.map(p => ({
       id: p.id, name: p.name, transition: p.transition || 'none',
       items: p.items,
@@ -395,7 +401,8 @@ app.post('/api/media', requireAuth, (req, res) => {
       originalName: req.file.originalname,
       ext,
       size: req.file.size,
-      uploadedAt: new Date().toISOString()
+      uploadedAt: new Date().toISOString(),
+      folderId: validFolderId(req.body.folderId)
     };
     store.data.media.push(m);
     store.save();
@@ -404,9 +411,40 @@ app.post('/api/media', requireAuth, (req, res) => {
   });
 });
 
+// ---- Media folders ----
+app.post('/api/folders', requireAuth, (req, res) => {
+  const { id, name } = req.body || {};
+  if (!name || !String(name).trim()) return res.status(400).json({ error: 'Folder needs a name' });
+  const clean = String(name).trim().slice(0, 40);
+  const clash = store.data.folders.find(f => f.id !== id && normalizeLabel(f.name) === normalizeLabel(clean));
+  if (clash) return res.status(400).json({ error: `A folder named "${clash.name}" already exists` });
+  let f = id ? store.data.folders.find(x => x.id === id) : null;
+  if (!f) {
+    if (store.data.folders.length >= 50) return res.status(400).json({ error: 'Folder limit reached' });
+    f = { id: crypto.randomUUID(), name: clean };
+    store.data.folders.push(f);
+  } else {
+    f.name = clean;
+  }
+  store.save();
+  pushDashboards();
+  res.json({ ok: true, folder: f });
+});
+
+app.delete('/api/folders/:id', requireAuth, (req, res) => {
+  const i = store.data.folders.findIndex(f => f.id === req.params.id);
+  if (i === -1) return res.status(404).json({ error: 'No such folder' });
+  store.data.folders.splice(i, 1);
+  // The folder's media moves back to the library root — nothing is deleted.
+  for (const m of store.data.media) if (m.folderId === req.params.id) m.folderId = null;
+  store.save();
+  pushDashboards();
+  res.json({ ok: true });
+});
+
 // ---- Slides (media created and edited entirely in the dashboard) ----
 app.post('/api/slides', requireAuth, (req, res) => {
-  const { id, label, durationSec, slide } = req.body || {};
+  const { id, label, durationSec, slide, folderId } = req.body || {};
   if (!slide || !slide.headline || !String(slide.headline).trim()) {
     return res.status(400).json({ error: 'Slide needs a headline' });
   }
@@ -431,6 +469,7 @@ app.post('/api/slides', requireAuth, (req, res) => {
     store.data.media.push(m);
   }
   m.slide = clean;
+  if (folderId !== undefined) m.folderId = validFolderId(folderId);
   if (typeof label === 'string' && label.trim()) m.label = label.trim().slice(0, 80);
   if (!m.label) m.label = clean.headline.slice(0, 40);
   const d = parseFloat(durationSec);
@@ -467,8 +506,9 @@ app.post('/api/media/:id/replace', requireAuth, (req, res) => {
 app.patch('/api/media/:id', requireAuth, (req, res) => {
   const m = store.medium(req.params.id);
   if (!m) return res.status(404).json({ error: 'No such media' });
-  const { label, durationSec } = req.body || {};
+  const { label, durationSec, folderId } = req.body || {};
   if (typeof label === 'string' && label.trim()) m.label = label.trim().slice(0, 80);
+  if (folderId !== undefined) m.folderId = validFolderId(folderId);
   if (durationSec !== undefined) {
     const d = parseFloat(durationSec);
     if (Number.isFinite(d)) m.durationSec = Math.min(Math.max(d, 1), 3600);

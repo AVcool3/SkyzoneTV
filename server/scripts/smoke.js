@@ -39,6 +39,7 @@ async function cleanupLeftovers(token) {
   for (const t of state.tvs) if (/^Smoke /.test(t.name)) await api(token, 'DELETE', `/api/tvs/${t.id}`);
   for (const m of state.media) if (/^smoke-/.test(m.label)) await api(token, 'DELETE', `/api/media/${m.id}`);
   for (const p of state.playlists || []) if (/^Smoke /.test(p.name)) await api(token, 'DELETE', `/api/playlists/${p.id}`);
+  for (const f of state.folders || []) if (/^Smoke /.test(f.name)) await api(token, 'DELETE', `/api/folders/${f.id}`);
   for (const c of state.settings.customThemes || []) if (/^Smoke /.test(c.name)) await api(token, 'DELETE', `/api/themes/${c.id}`);
   for (const e of state.events) {
     if (['CsvKid', 'CsvKid2', 'ThemeKid', 'NextDayKid', 'SoccerKid'].includes(e.name)) {
@@ -151,6 +152,36 @@ const run = async () => {
   await api(token, 'DELETE', `/api/playlists/${playlistId}`);
   state = (await api(token, 'GET', '/api/state')).data;
   check('deleting playlist frees tvs', state.tvs.every(t => t.playlistId === null));
+
+  // media folders
+  const folderRes = await api(token, 'POST', '/api/folders', { name: 'Smoke Folder' });
+  check('folder created', folderRes.status === 200 && folderRes.data.folder?.id);
+  const folderId = folderRes.data.folder.id;
+  const dupFolder = await api(token, 'POST', '/api/folders', { name: 'smoke folder' });
+  check('duplicate folder name rejected', dupFolder.status === 400);
+
+  const fForm = new FormData();
+  fForm.append('folderId', folderId);
+  fForm.append('file', new Blob([new Uint8Array(800)], { type: 'video/mp4' }), 'smoke-foldered.mp4');
+  const fUp = await fetch(BASE + '/api/media', {
+    method: 'POST', headers: { Authorization: 'Bearer ' + token }, body: fForm
+  }).then(r => r.json());
+  check('upload lands in folder', fUp.media?.folderId === folderId);
+  const folderedId = fUp.media.id;
+
+  await api(token, 'PATCH', `/api/media/${folderedId}`, { folderId: null });
+  state = (await api(token, 'GET', '/api/state')).data;
+  check('media movable out of folder', state.media.find(x => x.id === folderedId)?.folderId === null);
+  await api(token, 'PATCH', `/api/media/${folderedId}`, { folderId });
+  await api(token, 'POST', '/api/folders', { id: folderId, name: 'Smoke Folder 2' });
+  state = (await api(token, 'GET', '/api/state')).data;
+  check('folder renamed', state.folders.find(f => f.id === folderId)?.name === 'Smoke Folder 2');
+
+  await api(token, 'DELETE', `/api/folders/${folderId}`);
+  state = (await api(token, 'GET', '/api/state')).data;
+  check('deleting folder keeps media (moved to root)',
+    state.media.find(x => x.id === folderedId)?.folderId === null);
+  await api(token, 'DELETE', `/api/media/${folderedId}`);
 
   // slides: create in the UI, edit any time, no file behind them
   const slideRes = await api(token, 'POST', '/api/slides', {

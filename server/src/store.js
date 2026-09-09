@@ -3,7 +3,8 @@ import path from 'node:path';
 
 const DEFAULTS = () => ({
   tvs: [],      // { id, name, createdAt, lastSeen, power, assignedMediaIds, playlistId, override }
-  media: [],    // { id, label, originalName, ext, size, uploadedAt, durationSec (images) }
+  media: [],    // { id, label, originalName, ext, size, uploadedAt, durationSec, folderId, slide? }
+  folders: [],  // { id, name } — single-level media library folders
   playlists: [], // { id, name, transition: 'none'|'fade', items: [{ mediaId, enabled, durationSec }] }
   events: [],   // { id, tvId, name, message, startsAt, durationMin, mediaId, theme, status, source }
   settings: {
