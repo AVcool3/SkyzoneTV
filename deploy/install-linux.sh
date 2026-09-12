@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-shot installer for the Skyzone TV server on a Linux mini PC
+# One-shot installer for the ParkCast server on a Linux mini PC
 # (Ubuntu/Debian). Run from anywhere inside the checkout:
 #
 #   sudo bash deploy/install-linux.sh
@@ -36,9 +36,9 @@ cd "$SERVER_DIR"
 sudo -u "$RUN_USER" npm install --omit=dev --no-audit --no-fund
 
 echo "Registering systemd service…"
-cat > /etc/systemd/system/skyzone-tv.service <<EOF
+cat > /etc/systemd/system/parkcast.service <<EOF
 [Unit]
-Description=Skyzone TV signage server
+Description=ParkCast signage server
 After=network-online.target
 Wants=network-online.target
 
@@ -56,18 +56,18 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable --now skyzone-tv.service
+systemctl enable --now parkcast.service
 sleep 2
 
 echo
 echo "──────────────────────────────────────────────────────"
-systemctl --no-pager --lines=0 status skyzone-tv.service | head -3
+systemctl --no-pager --lines=0 status parkcast.service | head -3
 echo
 echo "Server output (addresses + dashboard password):"
-journalctl -u skyzone-tv.service --no-pager -n 12 -o cat
+journalctl -u parkcast.service --no-pager -n 12 -o cat
 echo "──────────────────────────────────────────────────────"
 echo
 echo "Useful commands:"
-echo "  journalctl -u skyzone-tv -f      # live logs"
-echo "  systemctl restart skyzone-tv     # restart the server"
-echo "  systemctl stop skyzone-tv        # stop it"
+echo "  journalctl -u parkcast -f      # live logs"
+echo "  systemctl restart parkcast     # restart the server"
+echo "  systemctl stop parkcast        # stop it"

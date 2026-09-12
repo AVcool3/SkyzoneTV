@@ -1,4 +1,4 @@
-/* Skyzone TV player.
+/* ParkCast screen player.
  * Registers itself with the server, then plays whatever the dashboard assigns.
  * Handles: playlist looping, birthday/event takeovers, power off (black screen),
  * reconnect with backoff, and keeps playing its current loop if the server
@@ -20,7 +20,10 @@
   const overrideHeadline = document.getElementById('overrideHeadline');
   const netdot = document.getElementById('netdot');
 
-  let tvId = localStorage.getItem('skyzone.tvId') || null;
+  // Read the current key, falling back to (and migrating) the pre-rename
+  // key so no installed TV loses its identity over the rebrand.
+  let tvId = localStorage.getItem('parkcast.tvId') || localStorage.getItem('skyzone.tvId') || null;
+  if (tvId) { try { localStorage.setItem('parkcast.tvId', tvId); } catch {} }
   let ws = null;
   let reconnectDelay = 1000;
   let state = null;           // last state from server
@@ -83,7 +86,7 @@
       });
       const data = await res.json();
       tvId = data.tvId;
-      localStorage.setItem('skyzone.tvId', tvId);
+      localStorage.setItem('parkcast.tvId', tvId);
       idleName.textContent = data.name;
       return true;
     } catch {
@@ -105,6 +108,7 @@
       try { msg = JSON.parse(e.data); } catch { return; }
       if (msg.type === 'state') applyState(msg);
       else if (msg.type === 'reregister') {
+        localStorage.removeItem('parkcast.tvId');
         localStorage.removeItem('skyzone.tvId');
         tvId = null;
         register().then(ok => { if (ok) ws.send(JSON.stringify({ type: 'hello', role: 'player', tvId })); });
@@ -176,7 +180,7 @@
       idleName.textContent = msg.pairCode ? `Code ${msg.pairCode}` : (msg.tv && msg.tv.name) || '';
       idleConn.textContent = '';
       document.getElementById('idleHint').textContent =
-        'Waiting for approval — open the dashboard, find this code on the TVs tab, and press Approve.';
+        'Waiting for approval — open the dashboard, find this code on the Screens page, and press Approve.';
       reportStatus();
       return;
     }
@@ -368,7 +372,7 @@
     // The venue name is configurable per instance so a second venue never
     // shows another park's brand on its most photographed screen.
     const sub = document.getElementById('overrideSubline');
-    if (sub && state && state.venueName) sub.textContent = `from your friends at ${state.venueName}!`;
+    if (sub) sub.textContent = (state && state.venueName) ? `from your friends at ${state.venueName}!` : '';
     overrideEl.dataset.theme = o.theme || 'party';
     // Custom themes carry their headline colors in the spec.
     if (o.theme === 'custom' && o.themeSpec && o.themeSpec.headline) {

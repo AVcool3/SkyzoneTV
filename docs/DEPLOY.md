@@ -21,7 +21,7 @@ see the mini PC upgrade at the bottom for later).
 
 For each TV, either use its built-in Google TV or plug in an onn box, then
 follow the per-TV steps in [SETUP.md](SETUP.md) (Downloader →
-`http://THE-IP:8080/skyzone-player.apk` → server address → allow
+`http://THE-IP:8080/parkcast-player.apk` → server address → allow
 "Display over other apps" → disable sleep/screensaver).
 
 Name TVs in the dashboard **exactly as the booking sheet refers to rooms**

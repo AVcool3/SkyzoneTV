@@ -1,4 +1,4 @@
-# Skyzone TV — Complete Setup Guide
+# ParkCast — Complete Setup Guide
 
 Everything to buy and every step to get all 12 TVs live. One-time effort:
 about half a day. After that the daily routine is ~5 minutes
@@ -76,7 +76,7 @@ On the mini PC (Windows or Linux both work):
 - **Windows:** Task Scheduler → Create Task → trigger *At startup* → action
   *Start a program* → `node` with arguments `src/index.js`, start in
   `C:\...\SkyzoneTV\server`. Set "Run whether user is logged on or not".
-- **Linux:** `sudo npm install -g pm2 && pm2 start src/index.js --name skyzone-tv && pm2 save && pm2 startup`
+- **Linux:** `sudo npm install -g pm2 && pm2 start src/index.js --name parkcast && pm2 save && pm2 startup`
   (run the command `pm2 startup` prints).
 
 ### Optional: reach the dashboard from anywhere
@@ -112,7 +112,7 @@ Common first steps on the device:
 
 **Option A — ParkCast Player app (recommended):**
 
-4. Open Downloader → enter `http://YOUR-SERVER-IP:8080/skyzone-player.apk`
+4. Open Downloader → enter `http://YOUR-SERVER-IP:8080/parkcast-player.apk`
    (the server hosts the app itself) → Install → Open.
 5. Enter the server address when asked (e.g. `http://YOUR-SERVER-IP:8080`).
 6. Allow **"Display over other apps"** when prompted — that's what lets the
@@ -159,7 +159,7 @@ password, and the server address from step 2.
    - Device Management → **Launch on Boot: ON**, **Keep Screen On: ON**.
    - Advanced Web Settings → Fake User Agent: leave default.
    - Kiosk mode (PLUS): optional — locks the remote so staff can't exit.
-6. The TV now shows the Skyzone idle screen with a name like "**TV 5**".
+6. The TV now shows the ParkCast idle screen with a name like "**TV 5**".
    On the dashboard, click that name and rename it to the physical location —
    e.g. **Room 1**, **Main Court**, **Front Desk**. (These names are what your
    birthday CSV matches against.)
@@ -170,14 +170,14 @@ after power cuts, Wi-Fi drops, and server restarts.
 ### About the native app
 
 `android-player/` is the source of the **ParkCast Player** app; a prebuilt
-APK ships at `server/public/skyzone-player.apk`, so every server automatically
-hosts the app for its own TVs at `http://YOUR-SERVER-IP:8080/skyzone-player.apk`
+APK ships at `server/public/parkcast-player.apk`, so every server automatically
+hosts the app for its own TVs at `http://YOUR-SERVER-IP:8080/parkcast-player.apk`
 (that's what Option A above installs). It boots straight into the player,
 relaunches itself after power cuts (with the "Display over other apps"
 permission granted), recovers from renderer crashes, and keeps the screen
 awake. To modify and rebuild it: open the folder in Android Studio → Build →
-Build APK, then replace `server/public/skyzone-player.apk`. You can also
-install it from a computer with `adb install skyzone-player.apk`.
+Build APK, then replace `server/public/parkcast-player.apk`. You can also
+install it from a computer with `adb install parkcast-player.apk`.
 
 ---
 
@@ -188,7 +188,7 @@ install it from a computer with `adb install skyzone-player.apk`.
    with a label you can rename (labels are also what the CSV `media` column
    matches).
 2. Try the two included files in `sample-media/`:
-   `skyzone-test-loop.mp4` (test pattern) and `birthday-loop.mp4` (birthday
+   `parkcast-test-loop.mp4` (test pattern) and `birthday-loop.mp4` (birthday
    background).
 3. Click **Set as birthday** on your birthday video — it becomes the default
    background for every birthday takeover.

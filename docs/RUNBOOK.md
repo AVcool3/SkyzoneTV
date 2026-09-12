@@ -1,4 +1,4 @@
-# Daily Runbook — Skyzone TV
+# Daily Runbook — ParkCast
 
 The whole daily routine happens in the dashboard on your phone or laptop:
 `http://YOUR-SERVER-IP:8080/dashboard/`

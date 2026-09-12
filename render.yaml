@@ -3,6 +3,10 @@
 # persistent disk for uploaded media + settings.
 services:
   - type: web
+    # NOTE: this is the Render service identity (and the *.onrender.com URL).
+    # It predates the ParkCast rename — do NOT change it: Render treats a new
+    # name as a NEW service, orphaning the existing disk and data. Renaming
+    # is a manual Render-dashboard operation, done deliberately.
     name: skyzone-tv
     runtime: node
     rootDir: server

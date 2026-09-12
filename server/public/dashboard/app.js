@@ -1,7 +1,10 @@
-/* Skyzone TV Control dashboard */
+/* ParkCast control dashboard */
 (() => {
   const $ = id => document.getElementById(id);
-  let token = localStorage.getItem('skyzone.token') || null;
+  // Read the current key, falling back to (and migrating) the pre-rename one
+  // so the rebrand never logs anyone out.
+  let token = localStorage.getItem('parkcast.token') || localStorage.getItem('skyzone.token') || null;
+  if (token) { try { localStorage.setItem('parkcast.token', token); } catch {} }
   let state = null;   // latest server snapshot
   let ws = null;
   let wsDelay = 1000;
@@ -48,6 +51,7 @@
   // ---------- auth ----------
   function logout() {
     token = null;
+    localStorage.removeItem('parkcast.token');
     localStorage.removeItem('skyzone.token');
     if (ws) { ws.onclose = null; ws.close(); ws = null; }
     $('app').classList.add('hidden');
@@ -65,7 +69,7 @@
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Login failed');
       token = data.token;
-      localStorage.setItem('skyzone.token', token);
+      localStorage.setItem('parkcast.token', token);
       enterApp();
     } catch (err) {
       $('loginError').textContent = err.message;

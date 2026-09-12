@@ -191,7 +191,7 @@ function playerState(tv) {
 // per instance via /api/settings or the VENUE_NAME env var, so venue #2
 // never shows venue #1's brand.
 function venueName() {
-  return store.data.settings.venueName || process.env.VENUE_NAME || 'Skyzone Schaumburg';
+  return store.data.settings.venueName || process.env.VENUE_NAME || '';
 }
 
 function pushTv(tvId) {
@@ -254,6 +254,8 @@ app.get('/healthz', (req, res) => {
 app.use('/media', express.static(MEDIA_DIR, { maxAge: '365d', immutable: true }));
 app.use(express.static(path.join(ROOT, 'public')));
 app.get('/', (req, res) => res.redirect('/dashboard/'));
+// The sideload APK moved with the rebrand; old Downloader links keep working.
+app.get('/skyzone-player.apk', (req, res) => res.redirect(301, '/parkcast-player.apk'));
 
 // ---- Auth ----
 app.post('/api/login', (req, res) => {
@@ -1162,7 +1164,7 @@ function lanAddresses() {
 }
 
 server.listen(PORT, () => {
-  console.log(`Skyzone TV server running on port ${PORT}`);
+  console.log(`ParkCast server running on port ${PORT}`);
   console.log(`  Dashboard: http://localhost:${PORT}/dashboard/`);
   console.log(`  Player:    http://localhost:${PORT}/player/`);
   for (const a of lanAddresses()) {

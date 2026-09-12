@@ -1,4 +1,4 @@
-# Skyzone TV — Schaumburg Park Signage System
+# ParkCast — Schaumburg Park Signage System
 
 A complete digital-signage system for the 12 TVs at Skyzone Schaumburg:
 
@@ -17,7 +17,7 @@ A complete digital-signage system for the 12 TVs at Skyzone Schaumburg:
 
 ```
 ┌─────────────┐   upload MP4s / CSV    ┌──────────────────┐    WebSocket    ┌──────────┐
-│ Your phone/ │ ─────────────────────► │  Skyzone TV       │ ──────────────► │ TV 1..12 │
+│ Your phone/ │ ─────────────────────► │  ParkCast       │ ──────────────► │ TV 1..12 │
 │ laptop      │   dashboard (web)      │  server (Node.js) │   push control  │ (player) │
 └─────────────┘                        └──────────────────┘                 └──────────┘
 ```
@@ -45,7 +45,7 @@ npm start
   terminal on startup)
 - Open http://localhost:8080/player/ in another browser window — it appears in
   the dashboard as "TV 1" instantly.
-- Upload `sample-media/skyzone-test-loop.mp4`, click **Apply to all TVs**, and
+- Upload `sample-media/parkcast-test-loop.mp4`, click **Apply to all TVs**, and
   watch it play. Click **🎂 Test** on a TV card to preview the birthday takeover.
 
 Full production setup (hardware list, per-TV install, network, autostart):

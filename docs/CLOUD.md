@@ -30,7 +30,7 @@ generous bandwidth. Scale the disk up later if the media library grows.
 Per-TV setup is the same as [SETUP.md](SETUP.md), with two differences:
 
 - The app/Downloader URLs use the cloud address:
-  APK at `https://skyzone-tv.onrender.com/skyzone-player.apk`, server address
+  APK at `https://skyzone-tv.onrender.com/parkcast-player.apk`, server address
   `https://skyzone-tv.onrender.com`.
 - **Approval:** in cloud mode a new screen doesn't join automatically —
   it shows a 6-digit pairing code and waits. Open the dashboard's TVs tab,
@@ -50,7 +50,7 @@ Any Ubuntu VPS (DigitalOcean, Lightsail, Hetzner):
 1. Clone the repo, run `sudo bash deploy/install-linux.sh` (installs the
    systemd service).
 2. Add `Environment=REQUIRE_TV_APPROVAL=1` to
-   `/etc/systemd/system/skyzone-tv.service` and restart.
+   `/etc/systemd/system/parkcast.service` and restart.
 3. Put [Caddy](https://caddyserver.com) in front for automatic HTTPS:
    `your.domain.com { reverse_proxy localhost:8080 }`
 4. Point a domain at the VPS.

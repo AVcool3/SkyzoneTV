@@ -1,7 +1,7 @@
 {
-  "name": "skyzone-tv-server",
+  "name": "parkcast-server",
   "version": "1.0.0",
-  "description": "Skyzone Schaumburg digital signage server: media library, TV control dashboard, and birthday/event scheduler",
+  "description": "ParkCast venue signage server: media library, screen control dashboard, and booking-driven party takeovers",
   "type": "module",
   "main": "src/index.js",
   "scripts": {

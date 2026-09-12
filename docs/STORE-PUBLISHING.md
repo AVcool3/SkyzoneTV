@@ -82,7 +82,7 @@ demo in the **App access** notes:
   Amazon Appstore, and tmsearch.uspto.gov; if something conflicting shows
   up, pick another neutral name (it's a one-file rename in
   `res/values/strings.xml` plus the two graphics). For your own 12 TVs,
-  sideloading (Downloader → `/skyzone-player.apk`) needs no store review at
+  sideloading (Downloader → `/parkcast-player.apk`) needs no store review at
   all.
 - **"Display over other apps" permission**: allowed, occasionally
   questioned. If review asks, the justification is: kiosk signage device

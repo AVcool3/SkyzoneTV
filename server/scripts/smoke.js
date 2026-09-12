@@ -62,7 +62,7 @@ const run = async () => {
   await cleanupLeftovers(token);
 
   // the native Android app is served for Downloader installs on the TVs
-  const apk = await fetch(BASE + '/skyzone-player.apk', { method: 'HEAD' });
+  const apk = await fetch(BASE + '/parkcast-player.apk', { method: 'HEAD' });
   check('android player apk is served', apk.status === 200);
 
   // player registration
