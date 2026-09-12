@@ -165,7 +165,7 @@ export function parseEventsCsv(text, tvs, media, customThemes = []) {
     if (mediaLabel) {
       const m = matchMedia(media, mediaLabel);
       if (m) mediaId = m.id;
-      else errors.push({ line, error: `Media "${mediaLabel}" not found — will use the default birthday screen` });
+      else errors.push({ line, error: `Media "${mediaLabel}" not found — the takeover will use the theme screen instead` });
     }
 
     let durationMin = parseFloat(get(iDur));

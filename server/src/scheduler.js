@@ -32,7 +32,7 @@ export function startScheduler(store, { onTvChanged, onStateChanged }) {
             // Age-aware default headline ("Happy 10th Birthday, Nathan!")
             // unless the operator wrote a custom message.
             message: ev.message || defaultBirthdayMessage(ev),
-            mediaId: ev.mediaId || store.data.settings.birthdayMediaId || null,
+            mediaId: ev.mediaId || null,
             endsAt: new Date(endMs).toISOString(),
             theme: ev.theme || 'party',
             // A blanked screen wakes for its scheduled party and re-blanks

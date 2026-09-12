@@ -355,7 +355,6 @@
       return;
     }
     for (const m of visible) {
-      const isBday = state.settings.birthdayMediaId === m.id;
       // Count TVs showing this media directly OR through their playlist.
       const usedBy = state.tvs.filter(t =>
         t.assignedMediaIds.includes(m.id) ||
@@ -370,14 +369,12 @@
         <input class="m-label" value="${esc(m.label)}" title="Click to rename">
         <div class="m-meta">${m.type === 'slide' ? 'made in the dashboard' : `${fmtSize(m.size)} · uploaded ${fmtTime(m.uploadedAt)}`} · ${usedBy} TV${usedBy === 1 ? '' : 's'} · ${inPlaylists} playlist${inPlaylists === 1 ? '' : 's'}</div>
         ${m.type !== 'video' ? `<div class="m-duration">Shows for <input type="number" class="m-dur" value="${m.durationSec}" min="1" max="3600" step="1"> seconds</div>` : ''}
-        ${isBday ? '<div class="m-bday">🎂 Default birthday video</div>' : ''}
         <div class="m-actions">
           ${m.type === 'slide' ? '<button class="btn tiny" data-act="editslide">✏ Edit slide</button>' :
             `<button class="btn tiny" data-act="preview">${m.type === 'image' ? '🔍 View' : '▶ Preview'}</button>`}
           ${m.type === 'image' ? '<button class="btn tiny" data-act="canva">🎨 Edit in Canva</button>' : ''}
           ${m.type !== 'slide' ? '<button class="btn tiny" data-act="replace">↻ Replace file</button>' : ''}
           <button class="btn tiny" data-act="all">Apply to all TVs</button>
-          ${m.type !== 'slide' ? `<button class="btn tiny" data-act="bday">${isBday ? 'Unset birthday' : 'Set as birthday'}</button>` : ''}
           <button class="btn tiny danger" data-act="del">Delete</button>
         </div>
         ${(state.folders || []).length ? `<div class="m-duration">📁 <select class="m-folder">
@@ -445,12 +442,6 @@
         api('/api/assign-all', { method: 'POST', body: JSON.stringify({ mediaIds: [m.id] }) })
           .then(() => toast('Now playing on all TVs')).catch(e => toast(e.message, true));
       });
-
-      const bdayBtn = card.querySelector('[data-act="bday"]');
-      if (bdayBtn) bdayBtn.addEventListener('click', () =>
-        api('/api/settings', { method: 'POST', body: JSON.stringify({ birthdayMediaId: isBday ? null : m.id }) })
-          .then(() => toast(isBday ? 'Birthday video unset' : `"${m.label}" is now the birthday video`))
-          .catch(e => toast(e.message, true)));
 
       card.querySelector('[data-act="del"]').addEventListener('click', () => {
         if (!confirm(`Delete "${m.label}"? It will be removed from every TV.`)) return;

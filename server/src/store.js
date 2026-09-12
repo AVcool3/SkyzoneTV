@@ -8,7 +8,6 @@ const DEFAULTS = () => ({
   playlists: [], // { id, name, transition: 'none'|'fade', items: [{ mediaId, enabled, durationSec }] }
   events: [],   // { id, tvId, name, message, startsAt, durationMin, mediaId, theme, status, source }
   settings: {
-    birthdayMediaId: null,
     dayStarted: true,
     adminPassword: null, // generated on first boot unless ADMIN_PASSWORD env is set
     customThemes: [],    // user-built birthday themes: { id, name, bg, headline, confetti, emojis, elements }

@@ -190,9 +190,7 @@ install it from a computer with `adb install parkcast-player.apk`.
 2. Try the two included files in `sample-media/`:
    `parkcast-test-loop.mp4` (test pattern) and `birthday-loop.mp4` (birthday
    background).
-3. Click **Set as birthday** on your birthday video — it becomes the default
-   background for every birthday takeover.
-4. **TVs** tab → each TV card → **Media…** → check the videos it should loop
+3. **TVs** tab → each TV card → **Media…** → check the videos it should loop
    (numbers show play order), Save. Or use **Set playlist for ALL TVs…** /
    **Apply to all TVs** to push one loop everywhere.
 5. Click **🎂 Test** on any TV card, type a name — that TV (and only that TV)

@@ -117,7 +117,6 @@ function dashboardSnapshot() {
       mediaLabel: e.mediaId ? (store.medium(e.mediaId)?.label || null) : null
     })),
     settings: {
-      birthdayMediaId: store.data.settings.birthdayMediaId,
       dayStarted: store.data.settings.dayStarted,
       customThemes: store.data.settings.customThemes,
       venueName: venueName()
@@ -379,7 +378,7 @@ app.post('/api/tvs/:id/test-birthday', requireAuth, (req, res) => {
     eventId: null,
     name: (name || 'Test').toString().slice(0, 60),
     message: null,
-    mediaId: store.data.settings.birthdayMediaId || null,
+    mediaId: null,
     endsAt: new Date(Date.now() + dur * 60_000).toISOString(),
     theme: resolveTheme(theme, store.data.settings.customThemes) || 'party',
     restorePowerOff: tv.power === 'off'
@@ -576,7 +575,6 @@ app.delete('/api/media/:id', requireAuth, (req, res) => {
     }
   }
   for (const ev of store.data.events) if (ev.mediaId === m.id) ev.mediaId = null;
-  if (store.data.settings.birthdayMediaId === m.id) store.data.settings.birthdayMediaId = null;
   if (!m.slide) { try { fs.unlinkSync(path.join(MEDIA_DIR, (m.fileId || m.id) + m.ext)); } catch {} }
   store.save();
   for (const id of touched) pushTv(id);
@@ -728,13 +726,7 @@ app.delete('/api/themes/:id', requireAuth, (req, res) => {
 });
 
 app.post('/api/settings', requireAuth, (req, res) => {
-  const { birthdayMediaId, venueName: newVenueName } = req.body || {};
-  if (birthdayMediaId !== undefined) {
-    if (birthdayMediaId !== null && !store.medium(birthdayMediaId)) {
-      return res.status(400).json({ error: 'No such media' });
-    }
-    store.data.settings.birthdayMediaId = birthdayMediaId;
-  }
+  const { venueName: newVenueName } = req.body || {};
   if (newVenueName !== undefined) {
     if (!String(newVenueName).trim()) return res.status(400).json({ error: 'Venue name cannot be empty' });
     store.data.settings.venueName = String(newVenueName).trim().slice(0, 60);
@@ -895,7 +887,7 @@ app.patch('/api/events/:id', requireAuth, (req, res) => {
           eventId: ev.id,
           name: ev.name,
           message: ev.message || defaultBirthdayMessage(ev),
-          mediaId: prev ? prev.mediaId : (ev.mediaId || store.data.settings.birthdayMediaId || null),
+          mediaId: prev ? prev.mediaId : (ev.mediaId || null),
           endsAt: new Date(endMs).toISOString(),
           theme: ev.theme || 'party',
           restorePowerOff: prev ? prev.restorePowerOff : target.power === 'off'
