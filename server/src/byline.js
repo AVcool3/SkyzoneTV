@@ -58,7 +58,9 @@ function cleanName(fragment) {
     .filter(w => w && /\p{L}/u.test(w) && !NOISE_WORDS.has(w.toLowerCase()) && !/\d/.test(w));
   if (words.length === 0 || words.length > 4) return null;
   const name = words.slice(0, 3)
-    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    // Title-case; a fully upper-cased word ("JAKE") is normalized, but mixed
+    // case ("McKenna", "D'Angelo") is preserved.
+    .map(w => w.charAt(0).toUpperCase() + (w.length > 1 && w === w.toUpperCase() ? w.slice(1).toLowerCase() : w.slice(1)))
     .join(' ')
     .slice(0, 40);
   // A lone initial or stray punctuation isn't a name.

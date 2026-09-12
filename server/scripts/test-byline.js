@@ -21,6 +21,8 @@ const cases = [
   ['', null, null, 'low'],
   ["D'Angelo's 9th birthday", "D'Angelo", 9, 'high'],
   ['Party turning 6 - Lucas', 'Lucas', 6, 'high'],
+  ['JAKE B-DAY (7)', 'Jake', 7, null],            // ALL-CAPS normalized
+  ["McKenna's 8th birthday", 'McKenna', 8, 'high'], // mixed case preserved
 ];
 
 const RANK = { low: 0, medium: 1, high: 2 };

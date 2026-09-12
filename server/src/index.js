@@ -261,11 +261,14 @@ app.post('/api/login', (req, res) => {
     return res.status(429).json({ error: 'Too many attempts — try again in 15 minutes' });
   }
   const { password } = req.body || {};
-  if (typeof password !== 'string' ||
-      password.length !== ADMIN_PASSWORD.length ||
-      !crypto.timingSafeEqual(Buffer.from(password), Buffer.from(ADMIN_PASSWORD))) {
+  // Compare as byte buffers: JS string length can match while UTF-8 byte
+  // length differs, and timingSafeEqual throws on unequal buffer lengths.
+  const given = typeof password === 'string' ? Buffer.from(password) : Buffer.alloc(0);
+  const actual = Buffer.from(ADMIN_PASSWORD);
+  if (given.length !== actual.length || !crypto.timingSafeEqual(given, actual)) {
     return res.status(401).json({ error: 'Wrong password' });
   }
+  loginAttempts.delete(req.ip); // successful logins don't count toward the lockout
   res.json({ token: issueToken() });
 });
 
@@ -596,18 +599,25 @@ function cleanPlaylistItems(items) {
   return (Array.isArray(items) ? items : [])
     .filter(it => it && store.medium(it.mediaId))
     .slice(0, 100)
-    .map(it => ({
-      mediaId: it.mediaId,
-      enabled: it.enabled !== false,
-      durationSec: Math.min(Math.max(parseFloat(it.durationSec) || 8, 1), 3600)
-    }));
+    .map(it => {
+      const d = parseFloat(it.durationSec);
+      return {
+        mediaId: it.mediaId,
+        enabled: it.enabled !== false,
+        // 0 clamps to the 1s minimum instead of silently becoming the default
+        durationSec: Math.min(Math.max(Number.isFinite(d) ? d : 8, 1), 3600)
+      };
+    });
 }
 
 app.post('/api/playlists', requireAuth, (req, res) => {
   const { id, name, transition, items } = req.body || {};
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'Playlist needs a name' });
+  // An explicit id that doesn't exist is a stale edit, not a create — forking
+  // a new playlist here would silently duplicate content.
+  if (id && !store.playlist(id)) return res.status(404).json({ error: 'No such playlist — it may have been deleted' });
   const pl = {
-    id: id && store.playlist(id) ? id : crypto.randomUUID(),
+    id: id || crypto.randomUUID(),
     name: String(name).trim().slice(0, 60),
     transition: transition === 'fade' ? 'fade' : 'none',
     items: cleanPlaylistItems(items)
@@ -750,12 +760,14 @@ app.post('/api/events/csv', requireAuth, (req, res) => {
         errors: errors.length ? errors : [{ line: 0, error: 'No valid rows found' }]
       });
     }
-    // Replace still-scheduled events, but only for the dates present in this
-    // file — pre-loading tomorrow's CSV must not delete tonight's parties.
-    // Active/done events are history and always stay.
+    // Replace still-scheduled events, but ONLY rows this importer owns
+    // (source 'csv') and only for the dates present in this file — a re-import
+    // must never delete manually-added, ROLLER, or test-import parties, and
+    // pre-loading tomorrow's CSV must not delete tonight's. Active/done
+    // events are history and always stay.
     const newDates = new Set(events.map(e => new Date(e.startsAt).toDateString()));
     store.data.events = store.data.events.filter(e =>
-      e.status !== 'scheduled' || !newDates.has(new Date(e.startsAt).toDateString()));
+      e.source !== 'csv' || e.status !== 'scheduled' || !newDates.has(new Date(e.startsAt).toDateString()));
     for (const e of events) {
       store.data.events.push({
         id: crypto.randomUUID(),
@@ -790,6 +802,10 @@ app.post('/api/events', requireAuth, (req, res) => {
     const m = matchMedia(store.data.media, mediaLabel);
     if (m) mediaId = m.id;
   }
+  // Same contract as PATCH: an explicitly given unknown theme is an error,
+  // not a silent fallback to party.
+  const cleanTheme = resolveTheme(theme, store.data.settings.customThemes);
+  if (theme && !cleanTheme) return res.status(400).json({ error: 'Unknown theme' });
   const ev = {
     id: crypto.randomUUID(),
     tvId,
@@ -799,7 +815,7 @@ app.post('/api/events', requireAuth, (req, res) => {
     startsAt: new Date(start).toISOString(),
     durationMin: Math.min(Math.max(parseFloat(durationMin) || 5, 0.2), 240),
     mediaId,
-    theme: resolveTheme(theme, store.data.settings.customThemes) || 'party',
+    theme: cleanTheme || 'party',
     status: 'scheduled',
     source: 'manual'
   };
@@ -849,13 +865,43 @@ app.patch('/api/events/:id', requireAuth, (req, res) => {
     if (!Number.isFinite(d) || d <= 0) return res.status(400).json({ error: 'Bad duration' });
     ev.durationMin = Math.min(Math.max(d, 0.2), 240);
   }
-  // If this party is on screen right now, the edit reaches the screen live.
-  const tv = store.tv(ev.tvId);
-  if (ev.status === 'active' && tv && tv.override && tv.override.eventId === ev.id) {
-    tv.override.name = ev.name;
-    tv.override.message = ev.message || defaultBirthdayMessage(ev);
-    tv.override.theme = ev.theme || 'party';
-    pushTv(tv.id);
+  // If this party is on screen right now, the edit reaches the screen live —
+  // including a moved room and a changed end time.
+  if (ev.status === 'active') {
+    const holder = store.data.tvs.find(t => t.override && t.override.eventId === ev.id);
+    const endMs = Date.parse(ev.startsAt) + ev.durationMin * 60_000;
+    if (Date.now() >= endMs) {
+      // The edited window is already over: finish the party cleanly instead
+      // of leaving a takeover the scheduler will strand.
+      ev.status = 'done';
+      if (holder) {
+        if (holder.override.restorePowerOff) holder.power = 'off';
+        holder.override = null;
+        pushTv(holder.id);
+      }
+    } else {
+      const target = store.tv(ev.tvId);
+      if (holder && target && holder.id !== target.id) {
+        // Party moved rooms mid-takeover: clear the old screen, take the new.
+        if (holder.override.restorePowerOff) holder.power = 'off';
+        holder.override = null;
+        pushTv(holder.id);
+      }
+      if (target) {
+        const prev = (holder && holder.id === target.id) ? holder.override : null;
+        target.override = {
+          eventId: ev.id,
+          name: ev.name,
+          message: ev.message || defaultBirthdayMessage(ev),
+          mediaId: prev ? prev.mediaId : (ev.mediaId || store.data.settings.birthdayMediaId || null),
+          endsAt: new Date(endMs).toISOString(),
+          theme: ev.theme || 'party',
+          restorePowerOff: prev ? prev.restorePowerOff : target.power === 'off'
+        };
+        target.power = 'on';
+        pushTv(target.id);
+      }
+    }
   }
   store.data.events.sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt));
   store.save();
@@ -867,10 +913,14 @@ app.delete('/api/events/:id', requireAuth, (req, res) => {
   const i = store.data.events.findIndex(e => e.id === req.params.id);
   if (i === -1) return res.status(404).json({ error: 'No such event' });
   const [ev] = store.data.events.splice(i, 1);
-  const tv = store.tv(ev.tvId);
-  if (tv && tv.override && tv.override.eventId === ev.id) {
-    tv.override = null;
-    pushTv(tv.id);
+  // Clear the takeover from WHICHEVER TV holds it — after a mid-takeover
+  // room move the holder can differ from ev.tvId.
+  for (const tv of store.data.tvs) {
+    if (tv.override && tv.override.eventId === ev.id) {
+      if (tv.override.restorePowerOff) tv.power = 'off';
+      tv.override = null;
+      pushTv(tv.id);
+    }
   }
   store.save();
   pushDashboards();
