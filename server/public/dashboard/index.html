@@ -37,7 +37,7 @@
     <button class="tab active" data-tab="tvs">TVs <span id="tvCount" class="pill"></span></button>
     <button class="tab" data-tab="media">Media <span id="mediaCount" class="pill"></span></button>
     <button class="tab" data-tab="playlists">Playlists <span id="playlistCount" class="pill"></span></button>
-    <button class="tab" data-tab="events">Events <span id="eventCount" class="pill"></span></button>
+    <button class="tab" data-tab="events">Parties <span id="eventCount" class="pill"></span></button>
     <button class="tab" data-tab="themes">Themes <span id="themeCount" class="pill"></span></button>
   </nav>
 
@@ -92,19 +92,29 @@
     <div id="themeList" class="media-list"></div>
   </section>
 
-  <!-- Events -->
+  <!-- Parties (bookings feed the takeovers; every parsed field stays editable) -->
   <section id="tab-events" class="tabpane hidden">
+    <div id="rollerCard" class="roller-card">
+      <div class="roller-info">
+        <strong>ROLLER</strong>
+        <span id="rollerStatusText" class="hint">Checking connection…</span>
+      </div>
+      <button id="rollerSyncBtn" class="btn small" disabled>Sync now</button>
+    </div>
     <div class="pane-tools">
-      <label class="btn primary" for="csvFile">⬆ Upload events CSV</label>
-      <input id="csvFile" type="file" accept=".csv,text/csv" hidden>
-      <button id="addEventBtn" class="btn">+ Add event</button>
-      <a class="btn ghost" href="sample-events.csv" download>Sample CSV</a>
+      <button id="addEventBtn" class="btn primary">+ Add party</button>
+      <!-- TEMPORARY test import: stands in for the ROLLER feed and is removed
+           once the connection above is live. -->
+      <label class="btn" for="testCsvFile">⬆ Test import (temporary)</label>
+      <input id="testCsvFile" type="file" accept=".csv,text/csv" hidden>
+      <a class="btn ghost" href="sample-test-bookings.csv" download>Sample bookings CSV</a>
       <button id="clearDoneBtn" class="btn ghost">Clear finished</button>
+      <span class="hint">Names and ages are read from the booking text — check the ⚠ rows, and change anything even when it looks right.</span>
     </div>
     <div id="csvReport" class="csv-report hidden"></div>
     <div class="table-wrap">
       <table id="eventTable">
-        <thead><tr><th>Starts</th><th>TV</th><th>Name</th><th>Message</th><th>Length</th><th>Theme</th><th>Media</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>Starts</th><th>Room</th><th>Booking</th><th>Name</th><th>Age</th><th>Theme</th><th>Length</th><th>Status</th><th></th></tr></thead>
         <tbody id="eventRows"></tbody>
       </table>
     </div>
@@ -124,12 +134,13 @@
   </div>
 </div>
 
-<!-- Add event modal -->
+<!-- Add party modal -->
 <div id="eventModal" class="modal hidden">
   <div class="modal-card">
-    <h3>Add event</h3>
-    <label>TV <select id="evTv"></select></label>
+    <h3>Add party</h3>
+    <label>Room / TV <select id="evTv"></select></label>
     <label>Name (shown on screen) <input id="evName" placeholder="Aiden"></label>
+    <label>Age (optional — makes it "Happy 10th Birthday!") <input id="evAge" type="number" min="1" max="99" placeholder="10"></label>
     <label>Custom message (optional) <input id="evMessage" placeholder="Happy Birthday, Aiden!"></label>
     <label>Date &amp; time <input id="evStart" type="datetime-local"></label>
     <label>Duration (minutes) <input id="evDuration" type="number" value="5" min="1" max="240"></label>

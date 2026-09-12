@@ -81,6 +81,7 @@
       render();
     } catch { return; }
     connectWs();
+    refreshRollerCard();
   }
 
   function connectWs() {
@@ -120,10 +121,10 @@
   // an inline rename field so their input isn't clobbered mid-keystroke.
   let renderHeld = false, renderPending = false;
   document.addEventListener('focusin', e => {
-    if (e.target.matches?.('.tv-name, .m-label')) renderHeld = true;
+    if (e.target.matches?.('.tv-name, .m-label, .ev-edit')) renderHeld = true;
   });
   document.addEventListener('focusout', e => {
-    if (e.target.matches?.('.tv-name, .m-label')) {
+    if (e.target.matches?.('.tv-name, .m-label, .ev-edit')) {
       renderHeld = false;
       if (renderPending) { renderPending = false; setTimeout(render, 50); }
     }
@@ -451,29 +452,69 @@
     }
   }
 
+  const THEME_ICONS = { party: '🎉', superhero: '🦸', princess: '👑', space: '🚀', ninja: '🥷' };
+  function themeOptionsHtml(selected) {
+    const builtins = ['party', 'superhero', 'princess', 'space', 'ninja']
+      .map(t => `<option value="${t}" ${selected === t ? 'selected' : ''}>${THEME_ICONS[t]} ${t}</option>`);
+    const customs = (state.settings.customThemes || [])
+      .map(c => `<option value="custom:${c.id}" ${selected === `custom:${c.id}` ? 'selected' : ''}>🎨 ${esc(c.name)}</option>`);
+    return builtins.concat(customs).join('');
+  }
+
+  // Save one edited field of a party row. Every field is editable on purpose:
+  // the byline parse only pre-fills — the operator always has the final word.
+  function saveEventField(ev, patch, okMsg) {
+    api(`/api/events/${ev.id}`, { method: 'PATCH', body: JSON.stringify(patch) })
+      .then(() => toast(okMsg || 'Saved'))
+      .catch(e => { toast(e.message, true); render(); });
+  }
+
   function renderEvents() {
     const rows = $('eventRows');
     rows.innerHTML = '';
     if (state.events.length === 0) {
-      rows.innerHTML = '<tr><td colspan="9" class="hint">No events. Upload the day\'s CSV or add one manually.</td></tr>';
+      rows.innerHTML = '<tr><td colspan="9" class="hint">No parties yet. They arrive from ROLLER (or the temporary test import), or add one manually.</td></tr>';
       return;
     }
-    const themeIcons = { party: '🎉', superhero: '🦸', princess: '👑', space: '🚀', ninja: '🥷' };
     for (const ev of state.events) {
+      const editable = ev.status !== 'done';
+      const needsCheck = ev.parsed && (ev.parsed.confidence !== 'high' || !ev.parsed.name);
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td>${fmtTime(ev.startsAt)}</td>
         <td>${esc(ev.tvName)}</td>
-        <td><strong>${esc(ev.name)}</strong></td>
-        <td>${esc(ev.message || `Happy Birthday, ${ev.name}!`)}</td>
+        <td class="byline-cell" title="${esc(ev.byline || '')}">${ev.byline ? esc(ev.byline) : '<span class="hint">manual</span>'}
+          ${needsCheck ? '<span class="parse-chip warn" title="The booking text was unclear — check the name and age">⚠ check</span>'
+            : (ev.parsed ? '<span class="parse-chip" title="Read automatically from the booking text — still editable">auto</span>' : '')}</td>
+        <td>${editable
+          ? `<input class="ev-edit ev-name" value="${esc(ev.name)}" maxlength="60" aria-label="Birthday name">`
+          : `<strong>${esc(ev.name)}</strong>`}</td>
+        <td>${editable
+          ? `<input class="ev-edit ev-age" type="number" min="1" max="99" value="${ev.age ?? ''}" placeholder="—" aria-label="Age">`
+          : `${ev.age ?? '—'}`}</td>
+        <td>${editable
+          ? `<select class="ev-edit ev-theme" aria-label="Theme">${themeOptionsHtml(ev.theme || 'party')}</select>`
+          : `${THEME_ICONS[ev.theme] || '🎨'} ${esc(themeDisplayName(ev.theme))}`}</td>
         <td>${ev.durationMin} min</td>
-        <td>${themeIcons[ev.theme] || '🎨'} ${esc(themeDisplayName(ev.theme))}</td>
-        <td>${esc(ev.mediaLabel || '—')}</td>
         <td><span class="status-tag ${ev.status}">${ev.status.toUpperCase()}</span></td>
         <td style="white-space:nowrap">
           ${ev.status === 'scheduled' ? '<button class="btn tiny" data-act="now">Start now</button>' : ''}
-          <button class="btn tiny danger" data-act="del">✕</button>
+          <button class="btn tiny danger" data-act="del" title="Delete">✕</button>
         </td>`;
+      if (editable) {
+        const nameInput = tr.querySelector('.ev-name');
+        nameInput.addEventListener('change', () => {
+          if (!nameInput.value.trim()) { nameInput.value = ev.name; return; }
+          saveEventField(ev, { name: nameInput.value }, `Name saved — screen will show "${nameInput.value.trim()}"`);
+        });
+        nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') nameInput.blur(); });
+        const ageInput = tr.querySelector('.ev-age');
+        ageInput.addEventListener('change', () =>
+          saveEventField(ev, { age: ageInput.value === '' ? null : ageInput.value }, 'Age saved'));
+        ageInput.addEventListener('keydown', e => { if (e.key === 'Enter') ageInput.blur(); });
+        tr.querySelector('.ev-theme').addEventListener('change', e =>
+          saveEventField(ev, { theme: e.target.value }, 'Theme saved'));
+      }
       const nowBtn = tr.querySelector('[data-act="now"]');
       if (nowBtn) nowBtn.addEventListener('click', () =>
         api(`/api/events/${ev.id}/start-now`, { method: 'POST' })
@@ -1116,23 +1157,45 @@
     if (token && e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files);
   });
 
-  // ---------- events csv ----------
-  $('csvFile').addEventListener('change', async e => {
+  // ---------- ROLLER connection card ----------
+  async function refreshRollerCard() {
+    try {
+      const s = await api('/api/roller/status');
+      $('rollerStatusText').textContent = s.configured
+        ? `Connected (${s.baseUrl}) — bookings sync into this list`
+        : 'Not connected yet — add ROLLER_CLIENT_ID and ROLLER_CLIENT_SECRET to the server environment. Until then, use the test import below.';
+      $('rollerCard').classList.toggle('connected', !!s.configured);
+      $('rollerSyncBtn').disabled = !s.configured;
+    } catch { /* card stays in its checking state; next login retries */ }
+  }
+  $('rollerSyncBtn').addEventListener('click', async () => {
+    try {
+      const r = await api('/api/roller/sync', { method: 'POST' });
+      toast(`ROLLER sync: ${r.imported} new, ${r.updated} updated` +
+        (r.errors?.length ? ` — ${r.errors.length} problem(s)` : ''));
+    } catch (err) { toast(err.message, true); }
+  });
+
+  // ---------- TEMPORARY test-booking import (stand-in for ROLLER) ----------
+  $('testCsvFile').addEventListener('change', async e => {
     const file = e.target.files[0];
     e.target.value = '';
     if (!file) return;
     const form = new FormData();
     form.append('file', file);
     try {
-      const res = await api('/api/events/csv', { method: 'POST', body: form });
+      const res = await api('/api/test-bookings/csv', { method: 'POST', body: form });
       const box = $('csvReport');
       box.classList.remove('hidden');
       const head = res.imported > 0
-        ? `<span class="ok">Imported ${res.imported} event${res.imported === 1 ? '' : 's'}.</span>`
-        : '<span class="warn">No events imported — the existing schedule was left untouched.</span>';
-      box.innerHTML = head +
-        (res.errors.length ? '<br>' + res.errors.map(er => `<span class="warn">Line ${er.line}: ${esc(er.error)}</span>`).join('<br>') : '');
-      toast(res.imported > 0 ? `Imported ${res.imported} events` : 'No events imported', res.imported === 0);
+        ? `<span class="ok">Imported ${res.imported} part${res.imported === 1 ? 'y' : 'ies'} from the booking text.</span>`
+        : '<span class="warn">Nothing imported — the existing schedule was left untouched.</span>';
+      const parsedLines = (res.parsed || []).map(p =>
+        `<span class="${p.confidence === 'high' ? 'ok' : 'warn'}">“${esc(p.byline)}” → ${esc(p.name)}${p.age ? ', turning ' + p.age : ''}` +
+        `${p.confidence === 'high' ? '' : ' — ⚠ check this one'}</span>`).join('<br>');
+      const errLines = res.errors.map(er => `<span class="warn">Line ${er.line}: ${esc(er.error)}</span>`).join('<br>');
+      box.innerHTML = head + (parsedLines ? '<br>' + parsedLines : '') + (errLines ? '<br>' + errLines : '');
+      toast(res.imported > 0 ? `Imported ${res.imported} — review names below` : 'Nothing imported', res.imported === 0);
     } catch (err) { toast(err.message, true); }
   });
 
@@ -1156,6 +1219,7 @@
     now.setSeconds(0, 0);
     $('evStart').value = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
     $('evName').value = '';
+    $('evAge').value = '';
     $('evMessage').value = '';
     $('evDuration').value = '5';
     $('eventError').textContent = '';
@@ -1169,6 +1233,7 @@
         body: JSON.stringify({
           tvId: $('evTv').value,
           name: $('evName').value,
+          age: $('evAge').value || null,
           message: $('evMessage').value || null,
           startsAt: new Date($('evStart').value).toISOString(),
           durationMin: parseFloat($('evDuration').value) || 5,
@@ -1177,7 +1242,7 @@
         })
       });
       $('eventModal').classList.add('hidden');
-      toast('Event added');
+      toast('Party added');
     } catch (err) { $('eventError').textContent = err.message; }
   });
 

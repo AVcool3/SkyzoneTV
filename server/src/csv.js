@@ -46,7 +46,7 @@ function validDate(dt) {
   return dt;
 }
 
-function parseDate(str) {
+export function parseDate(str) {
   const t = String(str || '').trim();
   let m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
   if (m) return validDate({ y: +m[1], mo: +m[2], d: +m[3] });
@@ -59,7 +59,7 @@ function parseDate(str) {
   return null;
 }
 
-function parseTime(str) {
+export function parseTime(str) {
   const t = String(str || '').trim();
   const m = t.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(am|pm|AM|PM|Am|Pm)?$/);
   if (!m) return null;

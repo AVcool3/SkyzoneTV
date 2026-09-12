@@ -64,3 +64,15 @@ Any Ubuntu VPS (DigitalOcean, Lightsail, Hetzner):
 - Login is rate-limited (10 attempts / 15 min per IP).
 - One venue = one instance. Onboarding another location means running this
   same blueprint again under a new name — nothing is shared between venues.
+
+## CI gate on deploys
+
+Every push runs `.github/workflows/ci.yml` (byline unit tests + the full
+smoke suite against a freshly booted server). To make a red run actually
+block production: in the Render dashboard open the service → Settings →
+Build & Deploy → enable **"Wait for CI to pass before deploying"**. With
+that on, a push to `main` only deploys after the CI check goes green.
+
+An hourly reliability agent also checks every venue in `ops/venues.json`
+(`<url>/healthz`) and records failures in `ops/INCIDENTS.md` — fill in the
+real venue URL there after deploying.

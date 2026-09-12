@@ -8,7 +8,10 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { Store } from './store.js';
-import { parseEventsCsv, matchMedia, normalizeTheme, resolveTheme, normalizeLabel, THEMES } from './csv.js';
+import { parseEventsCsv, matchMedia, matchTv, normalizeTheme, resolveTheme, normalizeLabel, THEMES,
+  parseCsv, parseDate, parseTime } from './csv.js';
+import { parseByline, defaultBirthdayMessage } from './byline.js';
+import { rollerStatus, rollerSync } from './roller.js';
 import { startScheduler } from './scheduler.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -220,6 +223,23 @@ function loginLimited(ip) {
   entry.count++;
   return entry.count > 10;
 }
+
+// Health check for uptime monitoring and CI (no auth: it exposes only liveness).
+const VERSION = (() => {
+  try { return JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version || '0'; }
+  catch { return '0'; }
+})();
+const bootedAt = Date.now();
+app.get('/healthz', (req, res) => {
+  res.json({
+    ok: true,
+    version: VERSION,
+    uptimeSec: Math.round((Date.now() - bootedAt) / 1000),
+    tvs: store.data.tvs.length,
+    online: store.data.tvs.filter(t => tvOnline(t.id)).length,
+    time: new Date().toISOString()
+  });
+});
 
 // Static: dashboard, player, media files (range requests supported by express.static)
 app.use('/media', express.static(MEDIA_DIR, { maxAge: '365d', immutable: true }));
@@ -738,12 +758,19 @@ app.post('/api/events/csv', requireAuth, (req, res) => {
 });
 
 app.post('/api/events', requireAuth, (req, res) => {
-  const { tvId, name, message, startsAt, durationMin, mediaLabel, theme } = req.body || {};
+  const { tvId, name, age, message, startsAt, durationMin, mediaLabel, theme } = req.body || {};
   const tv = store.tv(tvId);
   if (!tv) return res.status(400).json({ error: 'Pick a TV' });
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'Name is required' });
   const start = Date.parse(startsAt);
   if (!Number.isFinite(start)) return res.status(400).json({ error: 'Bad start time' });
+  let cleanAge = null;
+  if (age !== undefined && age !== null && age !== '') {
+    cleanAge = parseInt(age, 10);
+    if (!Number.isFinite(cleanAge) || cleanAge < 1 || cleanAge > 99) {
+      return res.status(400).json({ error: 'Age must be 1–99 (or blank)' });
+    }
+  }
   let mediaId = null;
   if (mediaLabel) {
     const m = matchMedia(store.data.media, mediaLabel);
@@ -753,6 +780,7 @@ app.post('/api/events', requireAuth, (req, res) => {
     id: crypto.randomUUID(),
     tvId,
     name: String(name).trim().slice(0, 60),
+    age: cleanAge,
     message: message ? String(message).slice(0, 120) : null,
     startsAt: new Date(start).toISOString(),
     durationMin: Math.min(Math.max(parseFloat(durationMin) || 5, 0.2), 240),
@@ -762,6 +790,59 @@ app.post('/api/events', requireAuth, (req, res) => {
     source: 'manual'
   };
   store.data.events.push(ev);
+  store.data.events.sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt));
+  store.save();
+  pushDashboards();
+  res.json({ ok: true, event: ev });
+});
+
+// Edit a party/event in place. Name, age and theme are ALWAYS editable — the
+// byline parser only pre-fills them, it never owns them (a "correct"-looking
+// parse can still be the parent's name, so the operator has the final word).
+app.patch('/api/events/:id', requireAuth, (req, res) => {
+  const ev = store.event(req.params.id);
+  if (!ev) return res.status(404).json({ error: 'No such event' });
+  const { name, age, message, theme, tvId, startsAt, durationMin } = req.body || {};
+  if (name !== undefined) {
+    if (!String(name).trim()) return res.status(400).json({ error: 'Name cannot be empty' });
+    ev.name = String(name).trim().slice(0, 60);
+  }
+  if (age !== undefined) {
+    if (age === null || age === '') ev.age = null;
+    else {
+      const a = parseInt(age, 10);
+      if (!Number.isFinite(a) || a < 1 || a > 99) return res.status(400).json({ error: 'Age must be 1–99 (or blank)' });
+      ev.age = a;
+    }
+  }
+  if (message !== undefined) ev.message = message ? String(message).slice(0, 120) : null;
+  if (theme !== undefined) {
+    const t = resolveTheme(theme, store.data.settings.customThemes);
+    if (!t) return res.status(400).json({ error: 'Unknown theme' });
+    ev.theme = t;
+  }
+  if (tvId !== undefined) {
+    if (!store.tv(tvId)) return res.status(400).json({ error: 'No such TV' });
+    ev.tvId = tvId;
+  }
+  if (startsAt !== undefined) {
+    const t = Date.parse(startsAt);
+    if (!Number.isFinite(t)) return res.status(400).json({ error: 'Bad start time' });
+    ev.startsAt = new Date(t).toISOString();
+  }
+  if (durationMin !== undefined) {
+    const d = parseFloat(durationMin);
+    if (!Number.isFinite(d) || d <= 0) return res.status(400).json({ error: 'Bad duration' });
+    ev.durationMin = Math.min(Math.max(d, 0.2), 240);
+  }
+  // If this party is on screen right now, the edit reaches the screen live.
+  const tv = store.tv(ev.tvId);
+  if (ev.status === 'active' && tv && tv.override && tv.override.eventId === ev.id) {
+    tv.override.name = ev.name;
+    tv.override.message = ev.message || defaultBirthdayMessage(ev);
+    tv.override.theme = ev.theme || 'party';
+    pushTv(tv.id);
+  }
   store.data.events.sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt));
   store.save();
   pushDashboards();
@@ -799,6 +880,104 @@ app.post('/api/events/clear-done', requireAuth, (req, res) => {
   pushDashboards();
   res.json({ ok: true });
 });
+
+// ---- ROLLER connection ----
+app.get('/api/roller/status', requireAuth, (req, res) => res.json(rollerStatus()));
+
+app.post('/api/roller/sync', requireAuth, async (req, res) => {
+  try {
+    const result = await rollerSync(store, { matchTv });
+    if (result.imported || result.updated) pushDashboards();
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    res.status(502).json({ error: `ROLLER sync failed: ${e.message}` });
+  }
+});
+
+// ---- TEMPORARY: test-booking CSV import -----------------------------------
+// Stand-in for the ROLLER feed while credentials are pending. It accepts a
+// raw booking export — date,time,room,byline[,duration] — with NO name or
+// theme columns, so the byline parser does the work exactly as it will for
+// live ROLLER data. This whole block (plus the dashboard's "Test import"
+// card and sample-test-bookings.csv) is scheduled for deletion once the
+// ROLLER connection is live; nothing else depends on it.
+app.post('/api/test-bookings/csv', requireAuth, (req, res) => {
+  csvUpload.single('file')(req, res, err => {
+    if (err) return res.status(400).json({ error: err.message });
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    const rows = parseCsv(req.file.buffer.toString('utf8'));
+    if (rows.length === 0) return res.json({ ok: true, imported: 0, errors: [{ line: 0, error: 'Empty file' }] });
+
+    const headers = rows[0].map(h => normalizeLabel(h));
+    const col = (...names) => {
+      for (const n of names) { const i = headers.indexOf(normalizeLabel(n)); if (i !== -1) return i; }
+      return -1;
+    };
+    const iDate = col('date'), iTime = col('time', 'start', 'starttime'),
+      iRoom = col('room', 'tv', 'resource', 'space', 'screen'),
+      iByline = col('byline', 'booking', 'title', 'name', 'description'),
+      iDur = col('duration', 'minutes', 'durationminutes');
+    if (iDate === -1 || iTime === -1 || iRoom === -1 || iByline === -1) {
+      return res.json({ ok: true, imported: 0,
+        errors: [{ line: 1, error: 'Missing headers. Need: date, time, room, byline (optional: duration)' }] });
+    }
+
+    const errors = [];
+    const imported = [];
+    for (let r = 1; r < rows.length; r++) {
+      const line = r + 1;
+      const get = i => (i >= 0 && i < rows[r].length ? rows[r][i].trim() : '');
+      const date = parseDate(get(iDate));
+      const time = parseTime(get(iTime));
+      if (!date) { errors.push({ line, error: `Bad date "${get(iDate)}"` }); continue; }
+      if (!time) { errors.push({ line, error: `Bad time "${get(iTime)}"` }); continue; }
+      const tv = matchTv(store.data.tvs, get(iRoom));
+      if (!tv) { errors.push({ line, error: `No TV matches room "${get(iRoom)}"` }); continue; }
+      const byline = get(iByline);
+      if (!byline) { errors.push({ line, error: 'Empty byline' }); continue; }
+      const parsed = parseByline(byline);
+      let durationMin = parseFloat(get(iDur));
+      if (!Number.isFinite(durationMin) || durationMin <= 0) durationMin = 5;
+      imported.push({
+        id: crypto.randomUUID(),
+        tvId: tv.id,
+        // The parse pre-fills; the Parties page keeps every field editable.
+        name: parsed.name || 'Birthday Star',
+        age: parsed.age,
+        message: null,
+        startsAt: new Date(date.y, date.mo - 1, date.d, time.h, time.min, 0, 0).toISOString(),
+        durationMin: Math.min(durationMin, 240),
+        mediaId: null,
+        theme: 'party',
+        status: 'scheduled',
+        source: 'test-csv',
+        byline,
+        parsed
+      });
+    }
+    if (imported.length > 0) {
+      // Re-importing a day's file replaces that day's still-scheduled test
+      // rows only — manual and ROLLER parties are never touched by this path.
+      const newDates = new Set(imported.map(e => new Date(e.startsAt).toDateString()));
+      store.data.events = store.data.events.filter(e =>
+        e.source !== 'test-csv' || e.status !== 'scheduled' || !newDates.has(new Date(e.startsAt).toDateString()));
+      store.data.events.push(...imported);
+      store.data.events.sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt));
+      store.save();
+      pushDashboards();
+    }
+    res.json({
+      ok: true,
+      imported: imported.length,
+      errors,
+      // Per-row parse report so the operator can eyeball what the parser did.
+      parsed: imported.map(e => ({
+        byline: e.byline, name: e.name, age: e.age, confidence: e.parsed.confidence
+      }))
+    });
+  });
+});
+// ---- END TEMPORARY --------------------------------------------------------
 
 // ---- Day open / close ----
 app.post('/api/day/start', requireAuth, (req, res) => {

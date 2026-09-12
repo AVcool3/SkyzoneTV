@@ -1,0 +1,10 @@
+{
+  "_comment": "Every deployed venue instance the reliability agent watches. Add a row per venue; url is the instance root (no trailing slash) — /healthz is appended by the checks.",
+  "venues": [
+    {
+      "name": "Sky Zone Schaumburg",
+      "url": "https://REPLACE-WITH-YOUR-RENDER-URL.onrender.com",
+      "note": "Fill in the real Render URL, then the hourly reliability agent starts checking it."
+    }
+  ]
+}

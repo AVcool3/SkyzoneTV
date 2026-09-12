@@ -2,6 +2,8 @@
 // clears them when their duration elapses. Only the targeted TV is touched —
 // every other TV keeps playing its own loop.
 
+import { defaultBirthdayMessage } from './byline.js';
+
 export function startScheduler(store, { onTvChanged, onStateChanged }) {
   function tick() {
     const now = Date.now();
@@ -27,7 +29,9 @@ export function startScheduler(store, { onTvChanged, onStateChanged }) {
           tv.override = {
             eventId: ev.id,
             name: ev.name,
-            message: ev.message || null,
+            // Age-aware default headline ("Happy 10th Birthday, Nathan!")
+            // unless the operator wrote a custom message.
+            message: ev.message || defaultBirthdayMessage(ev),
             mediaId: ev.mediaId || store.data.settings.birthdayMediaId || null,
             endsAt: new Date(endMs).toISOString(),
             theme: ev.theme || 'party',

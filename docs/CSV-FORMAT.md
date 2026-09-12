@@ -32,3 +32,18 @@ already-played and currently active ones are kept as history, and events on
 other dates (e.g. tonight's parties when you pre-load tomorrow's CSV) are
 untouched. A file with no valid rows changes nothing at all. So the workflow
 "fix the CSV, upload again" is always safe.
+
+## Temporary test-bookings format (Parties page)
+
+The Parties page imports raw *booking exports* — deliberately without name
+or theme columns, because the server parses the kid's name and age out of
+the booking text ("byline") exactly as it will from live ROLLER data:
+
+    date,time,room,byline,duration
+    2026-09-13,13:00,Room 1,Nathan's 10th birthday party,5
+
+Parsed name/age are pre-filled and always editable in the Parties table;
+rows the parser wasn't sure about carry a ⚠ check chip. This import (and
+this section) is temporary — it is removed once the ROLLER connection is
+live. The classic format above still works against `POST /api/events/csv`
+for scripted use.
