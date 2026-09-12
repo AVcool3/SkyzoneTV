@@ -29,18 +29,21 @@ Free account, light review, typically live in 1–3 days.
 
 ## Google Play (Google TV / Android TV)
 
-$25 one-time account fee. Expect the whole path to take ~3 weeks for a new
-individual account because of the closed-testing requirement.
+Published from the LLC's **organization** developer account. Organization
+accounts are exempt from the 12-testers/14-days closed-testing requirement
+that personal accounts have, so the path is: fill in app content → submit →
+1–7 days review. No multi-week test gate.
 
-1. play.google.com/console → create developer account → identity
-   verification.
-2. Create app → upload `app-release.aab` to a **closed testing** track.
-3. **New individual accounts must run a closed test with at least 12 testers
-   continuously opted in for 14 days** before they can apply for production.
-   Recruit testers (friends, staff — they opt in via a link; they don't need
-   TVs, phones count for the opt-in). After 14 days, apply for production
-   access and answer the questionnaire honestly (venue signage tool,
-   tested on Fire TV/Google TV hardware, etc.).
+1. play.google.com/console → the org account (already created; make sure
+   D-U-N-S/business verification shows complete, or production submission
+   stays locked).
+2. Create app "ParkCast Player" → upload `app-release.aab`. Use the
+   **internal testing** track first — it delivers to your own devices within
+   minutes, so you can confirm the store-installed build on the onn box
+   before requesting production review.
+3. Promote the same release to **production** when it looks good. Answer
+   the questionnaire honestly (venue signage tool, tested on Fire TV/Google
+   TV hardware, etc.).
 4. Fill every "App content" section — this is where apps actually get held:
    - **Privacy policy URL** (required): the server hosts one at
      `https://YOUR-APP.onrender.com/privacy.html` — edit the contact line
