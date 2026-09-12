@@ -19,32 +19,38 @@
   </form>
 </div>
 
-<!-- App -->
+<!-- App: sidebar of pages + main column -->
 <div id="app" class="view hidden">
-  <header>
+  <aside class="side-nav">
     <div class="logo small">SKY<span>ZONE</span> TV</div>
-    <div class="head-status">
-      <span id="connDot" class="dot off" title="Live connection"></span>
-      <span id="dayState" class="day-state"></span>
-    </div>
+    <nav class="nav-list">
+      <button class="tab active" data-tab="tvs"><span class="nav-ico">🖥</span> Screens <span id="tvCount" class="pill"></span></button>
+      <button class="tab" data-tab="media"><span class="nav-ico">🎬</span> Media <span id="mediaCount" class="pill"></span></button>
+      <button class="tab" data-tab="playlists"><span class="nav-ico">📋</span> Playlists <span id="playlistCount" class="pill"></span></button>
+      <button class="tab" data-tab="events"><span class="nav-ico">🎂</span> Parties <span id="eventCount" class="pill"></span></button>
+      <button class="tab" data-tab="themes"><span class="nav-ico">🎨</span> Themes <span id="themeCount" class="pill"></span></button>
+    </nav>
+  </aside>
+
+  <div class="main">
+  <header class="topbar">
+    <span id="connDot" class="dot off" title="Live connection"></span>
+    <span id="dayState" class="day-state"></span>
+    <span class="spacer"></span>
     <div class="head-actions">
       <button id="startDayBtn" class="btn small">▶ Start day</button>
       <button id="endDayBtn" class="btn small danger">■ End day</button>
     </div>
   </header>
 
-  <nav class="tabs">
-    <button class="tab active" data-tab="tvs">TVs <span id="tvCount" class="pill"></span></button>
-    <button class="tab" data-tab="media">Media <span id="mediaCount" class="pill"></span></button>
-    <button class="tab" data-tab="playlists">Playlists <span id="playlistCount" class="pill"></span></button>
-    <button class="tab" data-tab="events">Parties <span id="eventCount" class="pill"></span></button>
-    <button class="tab" data-tab="themes">Themes <span id="themeCount" class="pill"></span></button>
-  </nav>
-
-  <!-- TVs -->
+  <!-- Screens -->
   <section id="tab-tvs" class="tabpane">
+    <div class="page-head">
+      <h1>Screens</h1>
+      <p>Every TV in the venue — pair it, name it after its room, and choose what plays.</p>
+    </div>
     <div class="pane-tools">
-      <button id="assignAllBtn" class="btn">Choose media for ALL TVs…</button>
+      <button id="assignAllBtn" class="btn">Choose media for ALL screens…</button>
       <span class="hint">Tip: open <code id="playerUrl"></code> on a TV to pair it — it appears here automatically.</span>
     </div>
     <div id="tvGrid" class="tv-grid"></div>
@@ -52,6 +58,10 @@
 
   <!-- Media -->
   <section id="tab-media" class="tabpane hidden">
+    <div class="page-head">
+      <h1>Media</h1>
+      <p>Your library — videos, photos, and slides you can edit right here.</p>
+    </div>
     <div class="pane-tools">
       <label class="btn primary" for="mediaFile">⬆ Upload media</label>
       <input id="mediaFile" type="file" accept="video/mp4,video/webm,video/quicktime,image/jpeg,image/png,image/gif,image/webp,.mp4,.m4v,.webm,.mov,.jpg,.jpeg,.png,.gif,.webp" multiple hidden>
@@ -69,18 +79,26 @@
 
   <!-- Playlists -->
   <section id="tab-playlists" class="tabpane hidden">
+    <div class="page-head">
+      <h1>Playlists</h1>
+      <p>Mixes of media that loop on your screens. Edits go live instantly.</p>
+    </div>
     <div class="pane-tools">
       <button id="addPlaylistBtn" class="btn primary">+ New playlist</button>
-      <span class="hint">A playlist is a mix of videos and photos that plays in a loop. Assign it to one TV, several, or all of them — edits go live instantly.</span>
+      <span class="hint">Assign a playlist to one screen, several, or all of them.</span>
     </div>
     <div id="playlistList" class="media-list"></div>
   </section>
 
   <!-- Themes -->
   <section id="tab-themes" class="tabpane hidden">
+    <div class="page-head">
+      <h1>Themes</h1>
+      <p>The looks a birthday takeover can wear — build your own to match any party.</p>
+    </div>
     <div class="pane-tools">
       <button id="addThemeBtn" class="btn primary">+ New theme</button>
-      <span class="hint">Custom themes work everywhere the built-in ones do — in the Parties table's theme dropdown, the Add-party form, and the 🎂 Test button.</span>
+      <span class="hint">Custom themes work everywhere the built-in ones do — in the Parties theme dropdown, the Add-party form, and the 🎂 Test button.</span>
     </div>
     <h4 class="theme-h">Built-in</h4>
     <div class="theme-chips">
@@ -94,6 +112,10 @@
 
   <!-- Parties (bookings feed the takeovers; every parsed field stays editable) -->
   <section id="tab-events" class="tabpane hidden">
+    <div class="page-head">
+      <h1>Parties</h1>
+      <p>Bookings become birthday takeovers — the right screen, the right name, at party time.</p>
+    </div>
     <div id="rollerCard" class="roller-card">
       <div class="roller-info">
         <strong>ROLLER</strong>
@@ -119,6 +141,7 @@
       </table>
     </div>
   </section>
+  </div><!-- /.main -->
 </div>
 
 <!-- Media picker modal -->
