@@ -230,6 +230,7 @@
         </div>
         <div class="tv-now">${tv.power === 'off' ? 'Screen off' :
           tv.override ? `Birthday takeover until ${fmtTime(tv.override.endsAt)}` :
+          pl ? `Playlist: <span class="playing">${esc(pl.name)}</span>` :
           playlistNames.length ? `Loop: <span class="playing">${esc(playlistNames.join(' → '))}</span>` :
           'No media assigned'}</div>
         <div class="tv-actions">
@@ -341,7 +342,7 @@
     const list = $('mediaList');
     list.innerHTML = '';
     if (state.media.length === 0) {
-      list.innerHTML = '<p class="hint">No media yet. Upload an MP4 to get started.</p>';
+      list.innerHTML = '<p class="hint">No media yet. Upload videos or photos, or create a slide to get started.</p>';
       return;
     }
     const visible = currentFolder === 'all' ? state.media : state.media.filter(m => m.folderId === currentFolder);
@@ -351,7 +352,11 @@
     }
     for (const m of visible) {
       const isBday = state.settings.birthdayMediaId === m.id;
-      const usedBy = state.tvs.filter(t => t.assignedMediaIds.includes(m.id)).length;
+      // Count TVs showing this media directly OR through their playlist.
+      const usedBy = state.tvs.filter(t =>
+        t.assignedMediaIds.includes(m.id) ||
+        (t.playlistId && (state.playlists || []).find(p => p.id === t.playlistId)?.items.some(it => it.mediaId === m.id))
+      ).length;
       const inPlaylists = (state.playlists || []).filter(p => p.items.some(it => it.mediaId === m.id)).length;
       const card = document.createElement('div');
       card.className = 'media-card';
@@ -483,7 +488,8 @@
       tr.innerHTML = `
         <td>${fmtTime(ev.startsAt)}</td>
         <td>${esc(ev.tvName)}</td>
-        <td class="byline-cell" title="${esc(ev.byline || '')}">${ev.byline ? esc(ev.byline) : '<span class="hint">manual</span>'}
+        <td class="byline-cell" title="${esc(ev.byline || '')}">
+          <span class="byline-text">${ev.byline ? esc(ev.byline) : '<span class="hint">manual</span>'}</span>
           ${needsCheck ? '<span class="parse-chip warn" title="The booking text was unclear — check the name and age">⚠ check</span>'
             : (ev.parsed ? '<span class="parse-chip" title="Read automatically from the booking text — still editable">auto</span>' : '')}</td>
         <td>${editable
@@ -519,8 +525,10 @@
       if (nowBtn) nowBtn.addEventListener('click', () =>
         api(`/api/events/${ev.id}/start-now`, { method: 'POST' })
           .then(() => toast(`Showing ${ev.name} now`)).catch(e => toast(e.message, true)));
-      tr.querySelector('[data-act="del"]').addEventListener('click', () =>
-        api(`/api/events/${ev.id}`, { method: 'DELETE' }).catch(e => toast(e.message, true)));
+      tr.querySelector('[data-act="del"]').addEventListener('click', () => {
+        if (!confirm(`Delete ${ev.name}'s party (${fmtTime(ev.startsAt)}, ${ev.tvName})?`)) return;
+        api(`/api/events/${ev.id}`, { method: 'DELETE' }).catch(e => toast(e.message, true));
+      });
       rows.appendChild(tr);
     }
   }
@@ -627,7 +635,7 @@
       card.innerHTML = `
         <div class="pl-name">📋 ${esc(p.name)}</div>
         <div style="display:flex;gap:6px">${thumbs}</div>
-        <div class="m-meta">${enabled} of ${p.items.length} slide${p.items.length === 1 ? '' : 's'} playing ·
+        <div class="m-meta">${enabled} of ${p.items.length} item${p.items.length === 1 ? '' : 's'} playing ·
           ${p.transition === 'fade' ? 'fade transition' : 'no transition'} · on ${p.usedBy} TV${p.usedBy === 1 ? '' : 's'}</div>
         <div class="m-actions">
           <button class="btn tiny" data-act="edit">✏ Edit</button>
@@ -845,14 +853,21 @@
         const m = state.media.find(x => x.id === it.mediaId);
         return m ? thumbHtml(m, 'row-thumb') : '';
       }).join('') || '<div class="cc-big" style="flex:1">📋</div>';
-      const vids = p.items.filter(it => (state.media.find(m => m.id === it.mediaId) || {}).type !== 'image').length;
-      const photos = p.items.length - vids;
+      const counts = { video: 0, image: 0, slide: 0 };
+      for (const it of p.items) {
+        const t = (state.media.find(m => m.id === it.mediaId) || {}).type;
+        if (counts[t] !== undefined) counts[t]++;
+      }
+      const parts = [];
+      if (counts.video) parts.push(`${counts.video} video${counts.video === 1 ? '' : 's'}`);
+      if (counts.image) parts.push(`${counts.image} photo${counts.image === 1 ? '' : 's'}`);
+      if (counts.slide) parts.push(`${counts.slide} slide${counts.slide === 1 ? '' : 's'}`);
       const card = makeCard({
         key: p.id,
         ribbon: tv.playlistId === p.id,
         strip,
         name: `📋 ${p.name}`,
-        meta: `${p.items.length} slide${p.items.length === 1 ? '' : 's'} — ${vids} video${vids === 1 ? '' : 's'}, ${photos} photo${photos === 1 ? '' : 's'}<br>` +
+        meta: `${p.items.length} item${p.items.length === 1 ? '' : 's'}${parts.length ? ' — ' + parts.join(', ') : ''}<br>` +
           `${p.transition === 'fade' ? 'fade transition' : 'no transition'} · on ${p.usedBy} TV${p.usedBy === 1 ? '' : 's'}`,
         actions: '<button class="btn tiny" data-edit>✏ Edit playlist</button>'
       });
@@ -875,7 +890,7 @@
       ribbon: !tv.playlistId && tv.assignedMediaIds.length === 0,
       big: '🌙',
       name: 'Idle screen',
-      meta: 'Show the Skyzone standby screen — no media plays.'
+      meta: 'Show the standby screen — no media plays.'
     });
 
     const newCard = makeCard({
@@ -982,7 +997,7 @@
         </div>`;
       card.querySelector('[data-act="edit"]').addEventListener('click', () => openThemeModal(th));
       card.querySelector('[data-act="del"]').addEventListener('click', () => {
-        if (!confirm(`Delete theme "${th.name}"? Events using it switch to the party theme.`)) return;
+        if (!confirm(`Delete theme "${th.name}"? Parties using it switch to the party theme.`)) return;
         api(`/api/themes/${th.id}`, { method: 'DELETE' }).then(() => toast('Theme deleted')).catch(e => toast(e.message, true));
       });
       list.appendChild(card);
@@ -1213,7 +1228,8 @@
       <option value="ninja">🥷 Ninja</option>` + customOpts;
     const mediaSel = $('evMedia');
     mediaSel.innerHTML = '<option value="">Use the theme above</option>' +
-      state.media.map(m => `<option value="${esc(m.label)}">${esc(m.label)}</option>`).join('');
+      state.media.filter(m => m.type === 'video')
+        .map(m => `<option value="${esc(m.label)}">${esc(m.label)}</option>`).join('');
     $('evTheme').value = 'party';
     const now = new Date(Date.now() + 10 * 60000);
     now.setSeconds(0, 0);
@@ -1262,7 +1278,7 @@
   $('startDayBtn').addEventListener('click', () =>
     api('/api/day/start', { method: 'POST' }).then(() => toast('Day started — all screens on')).catch(e => toast(e.message, true)));
   $('endDayBtn').addEventListener('click', () => {
-    if (!confirm('End the day? All 12 screens go dark until you start the day again.')) return;
+    if (!confirm(`End the day? All ${state?.tvs.length ?? ''} screens go dark until you start the day again.`)) return;
     api('/api/day/end', { method: 'POST' }).then(() => toast('Day ended — screens off')).catch(e => toast(e.message, true));
   });
 

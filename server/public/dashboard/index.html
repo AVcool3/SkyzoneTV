@@ -44,7 +44,7 @@
   <!-- TVs -->
   <section id="tab-tvs" class="tabpane">
     <div class="pane-tools">
-      <button id="assignAllBtn" class="btn">Set playlist for ALL TVs…</button>
+      <button id="assignAllBtn" class="btn">Choose media for ALL TVs…</button>
       <span class="hint">Tip: open <code id="playerUrl"></code> on a TV to pair it — it appears here automatically.</span>
     </div>
     <div id="tvGrid" class="tv-grid"></div>
@@ -80,7 +80,7 @@
   <section id="tab-themes" class="tabpane hidden">
     <div class="pane-tools">
       <button id="addThemeBtn" class="btn primary">+ New theme</button>
-      <span class="hint">Custom themes work everywhere the built-in ones do — in the CSV (by name), the Add-event form, and the 🎂 Test button.</span>
+      <span class="hint">Custom themes work everywhere the built-in ones do — in the Parties table's theme dropdown, the Add-party form, and the 🎂 Test button.</span>
     </div>
     <h4 class="theme-h">Built-in</h4>
     <div class="theme-chips">
@@ -109,7 +109,7 @@
       <input id="testCsvFile" type="file" accept=".csv,text/csv" hidden>
       <a class="btn ghost" href="sample-test-bookings.csv" download>Sample bookings CSV</a>
       <button id="clearDoneBtn" class="btn ghost">Clear finished</button>
-      <span class="hint">Names and ages are read from the booking text — check the ⚠ rows, and change anything even when it looks right.</span>
+      <span class="hint">Names and ages are read from the booking text — check the ⚠ rows. Name, age and theme can be changed on any row, even when they look right.</span>
     </div>
     <div id="csvReport" class="csv-report hidden"></div>
     <div class="table-wrap">
@@ -125,7 +125,7 @@
 <div id="pickerModal" class="modal hidden">
   <div class="modal-card">
     <h3 id="pickerTitle">Choose media</h3>
-    <p class="hint">Checked items play in a loop, top to bottom. Numbers show play order.</p>
+    <p class="hint">Checked items play in a loop — the numbers show the play order (the order you check them).</p>
     <div id="pickerList" class="picker-list"></div>
     <div class="modal-actions">
       <button id="pickerCancel" class="btn ghost">Cancel</button>
@@ -172,7 +172,7 @@
       </span>
     </label>
     <div class="pane-tools" style="margin:4px 0 0">
-      <strong style="flex:1">Slides</strong>
+      <strong style="flex:1">Items</strong>
       <button id="plAddMedia" class="btn small primary">+ Add media</button>
     </div>
     <div id="plRows" class="pl-rows"></div>
@@ -230,7 +230,7 @@
 <div id="slideModal" class="modal hidden">
   <div class="modal-card">
     <h3 id="slideModalTitle">Create slide</h3>
-    <label>Name (for the library &amp; CSV) <input id="slLabel" placeholder="Pizza Deal"></label>
+    <label>Name (how it appears in the library) <input id="slLabel" placeholder="Pizza Deal"></label>
     <label>Small top line (optional) <input id="slBadge" placeholder="TODAY ONLY"></label>
     <label>Headline <input id="slHeadline" placeholder="Pizza + Drink $8.99"></label>
     <label>Details (optional) <input id="slSub" placeholder="At the cafe until 8pm"></label>
@@ -255,7 +255,7 @@
 <div id="themeModal" class="modal hidden">
   <div class="modal-card">
     <h3 id="themeModalTitle">New theme</h3>
-    <label>Name (what you'll type in the CSV) <input id="thName" placeholder="Soccer"></label>
+    <label>Name (how it appears in theme dropdowns) <input id="thName" placeholder="Soccer"></label>
     <label>Background colors
       <span class="color-row"><input id="thBg1" type="color" value="#1d7a3e"><input id="thBg2" type="color" value="#0b3d20"></span>
     </label>
@@ -293,7 +293,7 @@
 </div>
 
 <div id="toast" class="toast hidden"></div>
-<div id="dropHint" class="drop-hint hidden">Drop video files to upload</div>
+<div id="dropHint" class="drop-hint hidden">Drop videos or photos to upload</div>
 
 <script src="app.js"></script>
 </body>

@@ -181,7 +181,7 @@
       return;
     }
     document.getElementById('idleHint').textContent =
-      'This screen is registered. Open the dashboard to name this TV and assign media to it.';
+      'Standby — this screen is paired. Use the dashboard to change what plays here.';
     if (msg.power === 'off') {
       show('off');
       reportStatus();
@@ -365,6 +365,10 @@
 
   function showOverride(o) {
     setHeadline(o.message || `Happy Birthday, ${o.name}!`);
+    // The venue name is configurable per instance so a second venue never
+    // shows another park's brand on its most photographed screen.
+    const sub = document.getElementById('overrideSubline');
+    if (sub && state && state.venueName) sub.textContent = `from your friends at ${state.venueName}!`;
     overrideEl.dataset.theme = o.theme || 'party';
     // Custom themes carry their headline colors in the spec.
     if (o.theme === 'custom' && o.themeSpec && o.themeSpec.headline) {

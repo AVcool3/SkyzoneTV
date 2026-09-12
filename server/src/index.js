@@ -119,7 +119,8 @@ function dashboardSnapshot() {
     settings: {
       birthdayMediaId: store.data.settings.birthdayMediaId,
       dayStarted: store.data.settings.dayStarted,
-      customThemes: store.data.settings.customThemes
+      customThemes: store.data.settings.customThemes,
+      venueName: venueName()
     },
     serverTime: new Date().toISOString()
   };
@@ -182,7 +183,15 @@ function playerState(tv) {
     };
   }
   return { type: 'state', tv: { id: tv.id, name: tv.name }, power: tv.power,
-    approved: true, fit: tv.fit || 'contain', playlist, transition, override };
+    approved: true, fit: tv.fit || 'contain', playlist, transition, override,
+    venueName: venueName() };
+}
+
+// The venue name shown on guest-facing screens (birthday subline). Settable
+// per instance via /api/settings or the VENUE_NAME env var, so venue #2
+// never shows venue #1's brand.
+function venueName() {
+  return store.data.settings.venueName || process.env.VENUE_NAME || 'Skyzone Schaumburg';
 }
 
 function pushTv(tvId) {
@@ -707,12 +716,17 @@ app.delete('/api/themes/:id', requireAuth, (req, res) => {
 });
 
 app.post('/api/settings', requireAuth, (req, res) => {
-  const { birthdayMediaId } = req.body || {};
+  const { birthdayMediaId, venueName: newVenueName } = req.body || {};
   if (birthdayMediaId !== undefined) {
     if (birthdayMediaId !== null && !store.medium(birthdayMediaId)) {
       return res.status(400).json({ error: 'No such media' });
     }
     store.data.settings.birthdayMediaId = birthdayMediaId;
+  }
+  if (newVenueName !== undefined) {
+    if (!String(newVenueName).trim()) return res.status(400).json({ error: 'Venue name cannot be empty' });
+    store.data.settings.venueName = String(newVenueName).trim().slice(0, 60);
+    pushAllTvs(); // guest-facing subline changes immediately
   }
   store.save();
   pushDashboards();
