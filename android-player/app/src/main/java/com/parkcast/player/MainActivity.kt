@@ -21,9 +21,10 @@ import androidx.appcompat.app.AppCompatActivity
 
 /**
  * Full-screen kiosk WebView that loads the ParkCast player page.
- * First boot asks for the server URL (e.g. http://192.168.1.50:8080/player/),
- * stores it, and auto-loads it on every launch. Press MENU (☰) on the remote
- * to change the URL later. Auto-retries if the server is unreachable.
+ * Connects to the built-in server address on first boot (no setup screen —
+ * the TV goes straight to its pairing code). Press MENU (☰) on the remote
+ * to point it at a different server. Auto-retries if the server is
+ * unreachable.
  */
 class MainActivity : AppCompatActivity() {
 
@@ -78,8 +79,13 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        val url = prefs.getString("serverUrl", null)
-        if (url == null) promptForUrl() else webView.loadUrl(playerUrl())
+        // First boot: connect straight to the built-in server — no setup
+        // screen between plugging in and the pairing code. MENU (☰) still
+        // opens the address dialog to point the screen elsewhere.
+        if (prefs.getString("serverUrl", null) == null) {
+            prefs.edit().putString("serverUrl", BuildConfig.DEFAULT_SERVER_URL).apply()
+        }
+        webView.loadUrl(playerUrl())
         ensureBootPermission()
     }
 

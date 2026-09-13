@@ -21,9 +21,15 @@ android {
         applicationId = "com.parkcast.player"
         minSdk = 22          // Fire TV Stick (2nd gen+) and all Google TV devices
         targetSdk = 36       // current Google Play target requirement
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.2"
+        // Fresh installs connect here automatically — no setup screen. The
+        // MENU (☰) remote button still opens the address dialog to override
+        // it (demos, migrations, a different venue's server).
+        buildConfigField("String", "DEFAULT_SERVER_URL", "\"https://skyzone-tv.onrender.com\"")
     }
+
+    buildFeatures { buildConfig = true }
 
     signingConfigs {
         create("release") {
