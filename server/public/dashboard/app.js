@@ -226,6 +226,10 @@
       card.innerHTML = `
         <div class="tv-head">
           <input class="tv-name" value="${esc(tv.name)}" title="Click to rename">
+          <div class="tv-head-actions">
+            <button class="btn tiny" data-act="power">${tv.power === 'on' ? 'Screen off' : 'Screen on'}</button>
+            <button class="btn tiny danger" data-act="forget" title="Forget this TV">✕</button>
+          </div>
         </div>
         <div class="tv-badges">
           <span class="badge ${tv.online ? 'online' : 'offline'}">${tv.online ? 'ONLINE' : 'OFFLINE'}</span>
@@ -238,12 +242,10 @@
           playlistNames.length ? `Loop: <span class="playing">${esc(playlistNames.join(' → '))}</span>` :
           'No media assigned'}</div>
         <div class="tv-actions">
-          <button class="btn tiny" data-act="media">Content…</button>
-          <button class="btn tiny" data-act="power">${tv.power === 'on' ? 'Screen off' : 'Screen on'}</button>
           <button class="btn tiny" data-act="bday">🎂 Test</button>
           ${tv.override ? '<button class="btn tiny" data-act="clear">Stop takeover</button>' : ''}
-          <button class="btn tiny danger" data-act="forget">✕</button>
-        </div>`;
+        </div>
+        <button class="btn content-btn" data-act="media">Content…</button>`;
 
       const nameInput = card.querySelector('.tv-name');
       nameInput.addEventListener('change', () => {

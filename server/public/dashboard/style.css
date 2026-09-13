@@ -118,6 +118,8 @@ input:focus, select:focus { outline: 2px solid var(--blue); outline-offset: -1px
 }
 .tv-card.offline { opacity: 0.75; }
 .tv-card .tv-head { display: flex; align-items: center; gap: 8px; }
+.tv-head-actions { display: flex; gap: 4px; flex: none; }
+.tv-card .content-btn { width: 100%; font-size: 14.5px; padding: 10px 14px; margin-top: 2px; }
 .tv-card .tv-name {
   font-weight: 700; font-size: 17px; background: none; border: none; color: var(--text);
   flex: 1; min-width: 0; padding: 2px 4px; border-radius: 6px;
