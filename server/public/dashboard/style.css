@@ -30,7 +30,7 @@ code { background: var(--panel2); padding: 2px 6px; border-radius: 6px; font-siz
 
 .logo { font-weight: 800; letter-spacing: 0.04em; font-size: 34px; color: var(--text); }
 .logo span { color: var(--accent); }
-.logo.small { font-size: 19px; }
+.logo.small { font-size: 23px; }
 
 /* ---- Login ---- */
 #login { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
@@ -77,13 +77,12 @@ input:focus, select:focus { outline: 2px solid var(--blue); outline-offset: -1px
 .nav-list { display: flex; flex-direction: column; gap: 3px; }
 .tab {
   display: flex; align-items: center; gap: 10px; text-align: left;
-  background: none; border: none; color: var(--muted); font-size: 14.5px; font-weight: 600;
-  padding: 10px 12px; cursor: pointer; border-radius: 10px; width: 100%;
+  background: none; border: none; color: var(--muted); font-size: 16.5px; font-weight: 600;
+  padding: 12px 14px; cursor: pointer; border-radius: 10px; width: 100%;
   transition: background 0.12s, color 0.12s;
 }
 .tab:hover { background: var(--panel2); color: var(--text); }
 .tab.active { background: var(--accent-soft); color: var(--text); font-weight: 700; }
-.tab .nav-ico { font-size: 17px; width: 22px; text-align: center; }
 .pill {
   margin-left: auto; background: var(--panel2); border-radius: 999px;
   padding: 1px 8px; font-size: 12px; color: var(--muted);
@@ -395,8 +394,7 @@ select.ev-theme { width: auto; min-width: 112px; }
   }
   .side-nav .logo { display: none; }
   .nav-list { flex-direction: row; flex: 1; justify-content: space-around; gap: 2px; }
-  .tab { flex-direction: column; gap: 3px; padding: 6px 4px; font-size: 11px; border-radius: 8px; flex: 1; }
-  .tab .nav-ico { width: auto; font-size: 19px; }
+  .tab { justify-content: center; text-align: center; gap: 0; padding: 12px 4px; font-size: 13.5px; border-radius: 8px; flex: 1; }
   .pill { display: none; }
   .main { padding-bottom: 78px; }
   .topbar { padding: 10px 12px; flex-wrap: wrap; }
