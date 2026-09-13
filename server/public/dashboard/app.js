@@ -372,7 +372,6 @@
         <div class="m-actions">
           ${m.type === 'slide' ? '<button class="btn tiny" data-act="editslide">✏ Edit slide</button>' :
             `<button class="btn tiny" data-act="preview">${m.type === 'image' ? '🔍 View' : '▶ Preview'}</button>`}
-          ${m.type === 'image' ? '<button class="btn tiny" data-act="canva">🎨 Edit in Canva</button>' : ''}
           ${m.type !== 'slide' ? '<button class="btn tiny" data-act="replace">↻ Replace file</button>' : ''}
           <button class="btn tiny" data-act="all">Apply to all TVs</button>
           <button class="btn tiny danger" data-act="del">Delete</button>
@@ -421,20 +420,6 @@
           v.play().catch(() => {});
         }
         $('previewModal').classList.remove('hidden');
-      });
-
-      const canvaBtn = card.querySelector('[data-act="canva"]');
-      if (canvaBtn) canvaBtn.addEventListener('click', () => {
-        // Canva's cloud can't reach this LAN server, so: download the photo
-        // locally, open Canva, and the user drops the file straight in.
-        const a = document.createElement('a');
-        a.href = m.url;
-        a.download = m.originalName || (m.label + '.png');
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        window.open('https://www.canva.com/create/', '_blank');
-        toast('Photo downloaded — drop it into the Canva tab to keep editing. Upload the finished design back here.');
       });
 
       card.querySelector('[data-act="all"]').addEventListener('click', () => {
