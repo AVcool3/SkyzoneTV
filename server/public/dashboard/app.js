@@ -241,10 +241,7 @@
           pl ? `Playlist: <span class="playing">${esc(pl.name)}</span>` :
           playlistNames.length ? `Loop: <span class="playing">${esc(playlistNames.join(' → '))}</span>` :
           'No media assigned'}</div>
-        <div class="tv-actions">
-          <button class="btn tiny" data-act="bday">🎂 Test</button>
-          ${tv.override ? '<button class="btn tiny" data-act="clear">Stop takeover</button>' : ''}
-        </div>
+        ${tv.override ? '<div class="tv-actions"><button class="btn tiny" data-act="clear">Stop takeover</button></div>' : ''}
         <button class="btn content-btn" data-act="media">Content…</button>`;
 
       const nameInput = card.querySelector('.tv-name');
@@ -259,15 +256,6 @@
       card.querySelector('[data-act="power"]').addEventListener('click', () =>
         api(`/api/tvs/${tv.id}/power`, { method: 'POST', body: JSON.stringify({ power: tv.power === 'on' ? 'off' : 'on' }) })
           .catch(e => toast(e.message, true)));
-
-      card.querySelector('[data-act="bday"]').addEventListener('click', () => {
-        const name = prompt('Name to show (1-minute test):', 'Aiden');
-        if (!name) return;
-        const customNames = (state.settings.customThemes || []).map(c => c.name);
-        const theme = prompt('Theme: ' + ['party', 'superhero', 'princess', 'space', 'ninja'].concat(customNames).join(' / '), 'party') || 'party';
-        api(`/api/tvs/${tv.id}/test-birthday`, { method: 'POST', body: JSON.stringify({ name, theme, durationMin: 1 }) })
-          .then(() => toast('Birthday test running')).catch(e => toast(e.message, true));
-      });
 
       const clearBtn = card.querySelector('[data-act="clear"]');
       if (clearBtn) clearBtn.addEventListener('click', () =>
