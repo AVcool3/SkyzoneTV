@@ -184,8 +184,8 @@
       reportStatus();
       return;
     }
-    document.getElementById('idleHint').textContent =
-      'Standby — this screen is paired. Use the dashboard to change what plays here.';
+    // A paired screen's idle state is deliberately quiet: logo + name only.
+    document.getElementById('idleHint').textContent = '';
     if (msg.power === 'off') {
       show('off');
       reportStatus();
