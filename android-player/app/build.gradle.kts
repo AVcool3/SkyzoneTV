@@ -26,7 +26,7 @@ android {
         // Fresh installs connect here automatically — no setup screen. The
         // MENU (☰) remote button still opens the address dialog to override
         // it (demos, migrations, a different venue's server).
-        buildConfigField("String", "DEFAULT_SERVER_URL", "\"https://skyzone-tv.onrender.com\"")
+        buildConfigField("String", "DEFAULT_SERVER_URL", "\"https://parkcast.onrender.com\"")
     }
 
     buildFeatures { buildConfig = true }

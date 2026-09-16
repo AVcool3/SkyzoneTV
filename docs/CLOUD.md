@@ -16,10 +16,10 @@ first loop).
    `render.yaml` and provisions everything: the web service, a 20GB
    persistent disk for media, and cloud mode (`REQUIRE_TV_APPROVAL=1`).
 4. When the first deploy finishes you get a URL like
-   `https://skyzone-tv.onrender.com`. Open the service's **Logs** tab — the
+   `https://parkcast.onrender.com`. Open the service's **Logs** tab — the
    dashboard password is printed there on startup (or set your own by adding
    an `ADMIN_PASSWORD` environment variable and redeploying).
-5. Dashboard: `https://skyzone-tv.onrender.com/dashboard/` — works from any
+5. Dashboard: `https://parkcast.onrender.com/dashboard/` — works from any
    phone or laptop, anywhere.
 
 Cost: Starter instance $7/mo + 20GB disk ~$5/mo ≈ **$12/month**, includes
@@ -30,8 +30,8 @@ generous bandwidth. Scale the disk up later if the media library grows.
 Per-TV setup is the same as [SETUP.md](SETUP.md), with two differences:
 
 - The app/Downloader URLs use the cloud address:
-  APK at `https://skyzone-tv.onrender.com/parkcast-player.apk`, server address
-  `https://skyzone-tv.onrender.com`.
+  APK at `https://parkcast.onrender.com/parkcast-player.apk`, server address
+  `https://parkcast.onrender.com`.
 - **Approval:** in cloud mode a new screen doesn't join automatically —
   it shows a 6-digit pairing code and waits. Open the dashboard's TVs tab,
   find the card showing that code, press **Approve**, then name it. (This is

@@ -4,7 +4,7 @@
 <resources>
     <string name="app_name">ParkCast Player</string>
     <string name="setup_title">Server address</string>
-    <string name="setup_message">Enter the address shown in your ParkCast dashboard (e.g. https://yourvenue.example.com).\n\nPrivacy policy: https://skyzone-tv.onrender.com/privacy</string>
+    <string name="setup_message">Enter the address shown in your ParkCast dashboard (e.g. https://yourvenue.example.com).\n\nPrivacy policy: https://parkcast.onrender.com/privacy</string>
     <string name="setup_connect">Connect</string>
     <string name="boot_title">Allow auto-start after power loss</string>
     <string name="boot_message">Enable "Display over other apps" for ParkCast Player so the screen relaunches by itself when the device reboots.</string>

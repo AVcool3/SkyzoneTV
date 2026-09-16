@@ -3,8 +3,8 @@
   "venues": [
     {
       "name": "Sky Zone Schaumburg",
-      "url": "https://REPLACE-WITH-YOUR-RENDER-URL.onrender.com",
-      "note": "Fill in the real Render URL, then the hourly reliability agent starts checking it."
+      "url": "https://parkcast.onrender.com",
+      "note": "Confirm this matches the URL Render assigned to the parkcast service (a suffix is added if the name was taken)."
     }
   ]
 }

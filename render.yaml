@@ -3,18 +3,18 @@
 # persistent disk for uploaded media + settings.
 services:
   - type: web
-    # NOTE: this is the Render service identity (and the *.onrender.com URL).
-    # It predates the ParkCast rename — do NOT change it: Render treats a new
-    # name as a NEW service, orphaning the existing disk and data. Renaming
-    # is a manual Render-dashboard operation, done deliberately.
-    name: skyzone-tv
+    # Renamed from skyzone-tv (Sept 2026). Render provisions this as a NEW
+    # service with a fresh disk; the old skyzone-tv service keeps its data
+    # until deleted from the Render dashboard. Set ADMIN_PASSWORD (and any
+    # ROLLER_*/VENUE_NAME vars) on the new service before switching TVs over.
+    name: parkcast
     runtime: node
     rootDir: server
     buildCommand: npm install --omit=dev
     startCommand: node src/index.js
     plan: starter
     disk:
-      name: skyzone-data
+      name: parkcast-data
       mountPath: /data
       sizeGB: 20
     envVars:
