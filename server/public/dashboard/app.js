@@ -163,7 +163,27 @@
   }
 
   function thumbHtml(m, cls = 'thumb') {
-    // Photos show themselves; videos show their first frame; slides render live.
+    // Photos show themselves; videos show their first frame; slides and
+    // designs render live as scaled-down layouts.
+    if (m.type === 'comp') {
+      const c = m.comp || { bg: { colors: ['#333333'] }, elements: [] };
+      const colors = c.bg.colors || ['#333333'];
+      const bg = colors.length > 1 ? `linear-gradient(135deg, ${esc(colors[0])}, ${esc(colors[1])})` : esc(colors[0]);
+      const inner = (c.elements || []).slice().sort((a, b) => (a.z || 0) - (b.z || 0)).map(e => {
+        const pos = `position:absolute;left:${+e.x}%;top:${+e.y}%;width:${+e.w}%;height:${+e.h}%;`;
+        if (e.type === 'text') {
+          return `<div style="${pos}font-size:8px;font-weight:${+e.weight || 700};color:${esc(e.color)};overflow:hidden;text-align:${esc(e.align || 'center')};${e.boxBg ? `background:${esc(e.boxBg)};border-radius:2px;` : ''}">${esc(e.text)}</div>`;
+        }
+        if (e.type === 'box') return `<div style="${pos}background:${esc(e.color)};border-radius:2px"></div>`;
+        const mm = state.media.find(x => x.id === e.mediaId);
+        if (!mm || !mm.url) return '';
+        const fit = e.fit === 'contain' ? 'contain' : 'cover';
+        return e.type === 'image'
+          ? `<img src="${esc(mm.url)}" style="${pos}object-fit:${fit}" loading="lazy" alt="">`
+          : `<video src="${esc(mm.url)}" style="${pos}object-fit:${fit}" preload="metadata" muted playsinline></video>`;
+      }).join('');
+      return `<div class="${cls}" style="position:relative;overflow:hidden;background:${bg}">${inner}</div>`;
+    }
     if (m.type === 'slide') {
       const s = m.slide || {};
       return `<div class="${cls} slide-thumb" style="background:linear-gradient(135deg, ${esc(s.bg?.[0] || '#333')}, ${esc(s.bg?.[1] || '#111')});color:${esc(s.textColor || '#fff')}">
@@ -199,7 +219,7 @@
         const pend = document.createElement('div');
         pend.className = 'tv-card' + (tv.online ? '' : ' offline');
         pend.innerHTML = `
-          <div class="tv-head"><span class="tv-name" style="flex:1">📺 New screen</span></div>
+          <div class="tv-head"><span class="tv-name" style="flex:1">New screen</span></div>
           <div class="tv-badges">
             <span class="badge ${tv.online ? 'online' : 'offline'}">${tv.online ? 'ONLINE' : 'OFFLINE'}</span>
             <span class="badge bday">WAITING FOR APPROVAL</span>
@@ -234,7 +254,7 @@
         <div class="tv-badges">
           <span class="badge ${tv.online ? 'online' : 'offline'}">${tv.online ? 'ONLINE' : 'OFFLINE'}</span>
           ${tv.power === 'off' ? '<span class="badge off">SCREEN OFF</span>' : ''}
-          ${tv.override ? `<span class="badge bday">🎂 ${esc(tv.override.name)}</span>` : ''}
+          ${tv.override ? `<span class="badge bday">PARTY · ${esc(tv.override.name)}</span>` : ''}
         </div>
         <div class="tv-now">${tv.power === 'off' ? 'Screen off' :
           tv.override ? `Birthday takeover until ${fmtTime(tv.override.endsAt)}` :
@@ -289,15 +309,15 @@
       return chip;
     };
 
-    mkChip(`🗂 All media (${state.media.length})`, currentFolder === 'all', () => { currentFolder = 'all'; renderMedia(); });
+    mkChip(`All media (${state.media.length})`, currentFolder === 'all', () => { currentFolder = 'all'; renderMedia(); });
     for (const f of folders) {
       const count = state.media.filter(m => m.folderId === f.id).length;
       const active = currentFolder === f.id;
-      mkChip(`📁 ${f.name} (${count})`, active, () => { currentFolder = f.id; renderMedia(); });
+      mkChip(`${f.name} (${count})`, active, () => { currentFolder = f.id; renderMedia(); });
       if (active) {
         const ren = document.createElement('button');
         ren.className = 'btn tiny';
-        ren.textContent = '✏';
+        ren.textContent = 'Edit';
         ren.title = 'Rename folder';
         ren.addEventListener('click', () => {
           const name = prompt('Folder name:', f.name);
@@ -320,7 +340,7 @@
     }
     const add = document.createElement('button');
     add.className = 'btn tiny';
-    add.textContent = '＋ New folder';
+    add.textContent = '+ New folder';
     add.addEventListener('click', () => {
       const name = prompt('Folder name:', 'Promotions');
       if (!name) return;
@@ -353,23 +373,45 @@
       const inPlaylists = (state.playlists || []).filter(p => p.items.some(it => it.mediaId === m.id)).length;
       const card = document.createElement('div');
       card.className = 'media-card';
-      const typeBadge = m.type === 'slide' ? '📝 SLIDE' : m.type === 'image' ? '🖼 PHOTO' : '🎬 VIDEO';
+      const typeBadge = m.type === 'comp' ? 'DESIGN' : m.type === 'slide' ? 'SLIDE' : m.type === 'image' ? 'PHOTO' : 'VIDEO';
+      const folderOpts = (state.folders || []).length
+        ? `<label class="menu-row">Folder <select class="m-folder">
+            <option value="">No folder</option>
+            ${(state.folders || []).map(f => `<option value="${esc(f.id)}" ${m.folderId === f.id ? 'selected' : ''}>${esc(f.name)}</option>`).join('')}
+          </select></label>` : '';
       card.innerHTML = `
         <div class="thumb-wrap">${thumbHtml(m)}<span class="type-badge">${typeBadge}</span></div>
-        <input class="m-label" value="${esc(m.label)}" title="Click to rename">
-        <div class="m-meta">${m.type === 'slide' ? 'made in the dashboard' : `${fmtSize(m.size)} · uploaded ${fmtTime(m.uploadedAt)}`} · ${usedBy} TV${usedBy === 1 ? '' : 's'} · ${inPlaylists} playlist${inPlaylists === 1 ? '' : 's'}</div>
-        ${m.type !== 'video' ? `<div class="m-duration">Shows for <input type="number" class="m-dur" value="${m.durationSec}" min="1" max="3600" step="1"> seconds</div>` : ''}
-        <div class="m-actions">
-          ${m.type === 'slide' ? '<button class="btn tiny" data-act="editslide">✏ Edit slide</button>' :
-            `<button class="btn tiny" data-act="preview">${m.type === 'image' ? '🔍 View' : '▶ Preview'}</button>`}
-          ${m.type !== 'slide' ? '<button class="btn tiny" data-act="replace">↻ Replace file</button>' : ''}
-          <button class="btn tiny" data-act="all">Apply to all TVs</button>
-          <button class="btn tiny danger" data-act="del">Delete</button>
+        <div class="m-row">
+          <input class="m-label" value="${esc(m.label)}" title="Click to rename">
+          <div class="kebab">
+            <button class="btn tiny kebab-btn" title="More actions" aria-label="More actions">⋯</button>
+            <div class="menu hidden">
+              ${m.type === 'comp' ? '<button class="menu-item" data-act="editcomp">Edit design</button>' :
+                m.type === 'slide' ? '<button class="menu-item" data-act="editslide">Edit slide</button>' :
+                `<button class="menu-item" data-act="preview">${m.type === 'image' ? 'View' : 'Preview'}</button>`}
+              ${m.type === 'image' || m.type === 'video' ? '<button class="menu-item" data-act="replace">Replace file</button>' : ''}
+              <button class="menu-item" data-act="all">Apply to all screens</button>
+              ${folderOpts}
+              <button class="menu-item danger" data-act="del">Delete</button>
+            </div>
+          </div>
         </div>
-        ${(state.folders || []).length ? `<div class="m-duration">📁 <select class="m-folder">
-          <option value="">No folder</option>
-          ${(state.folders || []).map(f => `<option value="${esc(f.id)}" ${m.folderId === f.id ? 'selected' : ''}>${esc(f.name)}</option>`).join('')}
-        </select></div>` : ''}`;
+        <div class="m-meta">${(m.type === 'slide' || m.type === 'comp') ? 'made in the dashboard' : `${fmtSize(m.size)} · uploaded ${fmtTime(m.uploadedAt)}`} · ${usedBy} screen${usedBy === 1 ? '' : 's'} · ${inPlaylists} playlist${inPlaylists === 1 ? '' : 's'}</div>
+        ${m.type !== 'video' ? `<div class="m-duration">Shows for <input type="number" class="m-dur" value="${m.durationSec}" min="1" max="3600" step="1"> seconds</div>` : ''}`;
+
+      // Three-dot menu: hidden until clicked, one open at a time.
+      const kebabBtn = card.querySelector('.kebab-btn');
+      const menu = card.querySelector('.menu');
+      kebabBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        const wasOpen = !menu.classList.contains('hidden');
+        closeAllMenus();
+        if (!wasOpen) menu.classList.remove('hidden');
+      });
+      menu.addEventListener('click', e => {
+        if (e.target.closest('.menu-item')) menu.classList.add('hidden');
+        e.stopPropagation();
+      });
 
       const label = card.querySelector('.m-label');
       label.addEventListener('change', () =>
@@ -390,6 +432,9 @@
 
       const editSlideBtn = card.querySelector('[data-act="editslide"]');
       if (editSlideBtn) editSlideBtn.addEventListener('click', () => openSlideModal(m));
+
+      const editCompBtn = card.querySelector('[data-act="editcomp"]');
+      if (editCompBtn) editCompBtn.addEventListener('click', () => openCompModal(m));
 
       const replaceBtn = card.querySelector('[data-act="replace"]');
       if (replaceBtn) replaceBtn.addEventListener('click', () => {
@@ -413,13 +458,13 @@
       });
 
       card.querySelector('[data-act="all"]').addEventListener('click', () => {
-        if (!confirm(`Replace every TV's playlist with just "${m.label}"?`)) return;
+        if (!confirm(`Replace every screen's playlist with just "${m.label}"?`)) return;
         api('/api/assign-all', { method: 'POST', body: JSON.stringify({ mediaIds: [m.id] }) })
-          .then(() => toast('Now playing on all TVs')).catch(e => toast(e.message, true));
+          .then(() => toast('Now playing on all screens')).catch(e => toast(e.message, true));
       });
 
       card.querySelector('[data-act="del"]').addEventListener('click', () => {
-        if (!confirm(`Delete "${m.label}"? It will be removed from every TV.`)) return;
+        if (!confirm(`Delete "${m.label}"? It will be removed from every screen.`)) return;
         api(`/api/media/${m.id}`, { method: 'DELETE' }).then(() => toast('Deleted')).catch(e => toast(e.message, true));
       });
 
@@ -427,12 +472,16 @@
     }
   }
 
-  const THEME_ICONS = { party: '🎉', superhero: '🦸', princess: '👑', space: '🚀', ninja: '🥷' };
+  function closeAllMenus() {
+    document.querySelectorAll('.kebab .menu').forEach(mn => mn.classList.add('hidden'));
+  }
+  document.addEventListener('click', closeAllMenus);
+
   function themeOptionsHtml(selected) {
     const builtins = ['party', 'superhero', 'princess', 'space', 'ninja']
-      .map(t => `<option value="${t}" ${selected === t ? 'selected' : ''}>${THEME_ICONS[t]} ${t}</option>`);
+      .map(t => `<option value="${t}" ${selected === t ? 'selected' : ''}>${t}</option>`);
     const customs = (state.settings.customThemes || [])
-      .map(c => `<option value="custom:${c.id}" ${selected === `custom:${c.id}` ? 'selected' : ''}>🎨 ${esc(c.name)}</option>`);
+      .map(c => `<option value="custom:${c.id}" ${selected === `custom:${c.id}` ? 'selected' : ''}>${esc(c.name)}</option>`);
     return builtins.concat(customs).join('');
   }
 
@@ -460,7 +509,7 @@
         <td>${esc(ev.tvName)}</td>
         <td class="byline-cell" title="${esc(ev.byline || '')}">
           <span class="byline-text">${ev.byline ? esc(ev.byline) : '<span class="hint">manual</span>'}</span>
-          ${needsCheck ? '<span class="parse-chip warn" title="The booking text was unclear — check the name and age">⚠ check</span>'
+          ${needsCheck ? '<span class="parse-chip warn" title="The booking text was unclear — check the name and age">check</span>'
             : (ev.parsed ? '<span class="parse-chip" title="Read automatically from the booking text — still editable">auto</span>' : '')}</td>
         <td>${editable
           ? `<input class="ev-edit ev-name" value="${esc(ev.name)}" maxlength="60" aria-label="Birthday name">`
@@ -470,7 +519,7 @@
           : `${ev.age ?? '—'}`}</td>
         <td>${editable
           ? `<select class="ev-edit ev-theme" aria-label="Theme">${themeOptionsHtml(ev.theme || 'party')}</select>`
-          : `${THEME_ICONS[ev.theme] || '🎨'} ${esc(themeDisplayName(ev.theme))}`}</td>
+          : esc(themeDisplayName(ev.theme))}</td>
         <td>${ev.durationMin} min</td>
         <td><span class="status-tag ${ev.status}">${ev.status.toUpperCase()}</span></td>
         <td style="white-space:nowrap">
@@ -502,6 +551,330 @@
       rows.appendChild(tr);
     }
   }
+
+  // ---------- layout designer ----------
+  // A design is positioned elements (text / photo / video / box) over a
+  // background, edited on a 16:9 canvas that IS the live preview. Fonts are
+  // stored as % of screen height so the TV render matches exactly.
+  let compEditing = null;   // { id, label, durationSec, bg:[c1,c2], elements:[] }
+  let compSel = -1;
+  let compUndoStack = [];
+
+  function compSnapshot() {
+    compUndoStack.push(JSON.stringify(compEditing.elements));
+    if (compUndoStack.length > 40) compUndoStack.shift();
+  }
+  function compUndo() {
+    const prev = compUndoStack.pop();
+    if (!prev) return;
+    compEditing.elements = JSON.parse(prev);
+    if (compSel >= compEditing.elements.length) compSel = compEditing.elements.length - 1;
+    compRender();
+  }
+
+  function openCompModal(m) {
+    compEditing = m
+      ? { id: m.id, label: m.label, durationSec: m.durationSec || 10,
+          bg: [...m.comp.bg.colors], elements: JSON.parse(JSON.stringify(m.comp.elements)) }
+      : { id: null, label: '', durationSec: 10, bg: ['#18181b', '#3f3f46'], elements: [] };
+    if (compEditing.bg.length < 2) compEditing.bg.push(compEditing.bg[0]);
+    compSel = compEditing.elements.length ? 0 : -1;
+    compUndoStack = [];
+    $('compTitle').textContent = m ? `Edit "${m.label}"` : 'New design';
+    $('compLabel').value = compEditing.label;
+    $('compDur').value = compEditing.durationSec;
+    $('compBg1').value = compEditing.bg[0];
+    $('compBg2').value = compEditing.bg[1];
+    $('compError').textContent = '';
+    $('compModal').classList.remove('hidden');
+    compRender();
+  }
+
+  function compCanvasBg() {
+    const [a, b] = compEditing.bg;
+    $('compCanvas').style.background = a === b ? a : `linear-gradient(135deg, ${a}, ${b})`;
+  }
+
+  function compRender() {
+    const cnv = $('compCanvas');
+    cnv.innerHTML = '';
+    compCanvasBg();
+    const H = cnv.getBoundingClientRect().height || 400;
+    compEditing.elements.forEach((e, i) => {
+      const d = document.createElement('div');
+      d.className = 'comp-el' + (i === compSel ? ' sel' : '');
+      d.dataset.idx = i;
+      d.style.left = e.x + '%'; d.style.top = e.y + '%';
+      d.style.width = e.w + '%'; d.style.height = e.h + '%';
+      d.style.zIndex = 1 + (e.z || 0);
+      if (e.type === 'text') {
+        d.textContent = e.text;
+        d.style.fontSize = (e.size / 100 * H) + 'px';
+        d.style.fontWeight = e.weight;
+        d.style.color = e.color;
+        d.style.display = 'flex'; d.style.flexDirection = 'column'; d.style.justifyContent = 'center';
+        d.style.textAlign = e.align;
+        d.style.alignItems = e.align === 'left' ? 'flex-start' : e.align === 'right' ? 'flex-end' : 'center';
+        d.style.lineHeight = '1.15'; d.style.overflow = 'hidden';
+        if (e.boxBg) { d.style.background = e.boxBg; d.style.borderRadius = '6px'; d.style.padding = '0 8px'; }
+      } else if (e.type === 'box') {
+        d.style.background = e.color;
+        d.style.borderRadius = (e.radius / 100 * H) + 'px';
+      } else {
+        const mm = state.media.find(x => x.id === e.mediaId);
+        const media = document.createElement(e.type === 'image' ? 'img' : 'video');
+        if (mm && mm.url) media.src = mm.url;
+        if (e.type === 'video') { media.muted = true; media.preload = 'metadata'; }
+        media.style.cssText = `width:100%;height:100%;object-fit:${e.fit};pointer-events:none;border-radius:${e.radius / 100 * H}px;display:block`;
+        d.appendChild(media);
+      }
+      // Selecting and dragging never rebuilds the canvas — the pressed node
+      // must survive its own drag.
+      d.addEventListener('pointerdown', ev => {
+        if (ev.target.classList.contains('resize')) return;
+        if (compSel !== i) {
+          compSel = i;
+          cnv.querySelectorAll('.comp-el').forEach(x => x.classList.remove('sel'));
+          d.classList.add('sel');
+          compRenderPanel();
+        }
+        const rect = cnv.getBoundingClientRect();
+        const startX = ev.clientX, startY = ev.clientY, ox = e.x, oy = e.y;
+        let moved = false;
+        const move = mv => {
+          const dx = (mv.clientX - startX) / rect.width * 100;
+          const dy = (mv.clientY - startY) / rect.height * 100;
+          if (!moved && Math.abs(dx) < 0.3 && Math.abs(dy) < 0.3) return;
+          if (!moved) { compSnapshot(); moved = true; }
+          e.x = Math.min(Math.max(ox + dx, 0), 98);
+          e.y = Math.min(Math.max(oy + dy, 0), 98);
+          // Snap to the canvas center lines.
+          if (Math.abs(e.x + e.w / 2 - 50) < 1.2) e.x = 50 - e.w / 2;
+          if (Math.abs(e.y + e.h / 2 - 50) < 1.2) e.y = 50 - e.h / 2;
+          d.style.left = e.x + '%'; d.style.top = e.y + '%';
+        };
+        const up = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); };
+        addEventListener('pointermove', move);
+        addEventListener('pointerup', up);
+        ev.preventDefault();
+        cnv.focus();
+      });
+      const rz = document.createElement('div');
+      rz.className = 'resize';
+      rz.addEventListener('pointerdown', ev => {
+        ev.stopPropagation(); ev.preventDefault();
+        const rect = cnv.getBoundingClientRect();
+        const startX = ev.clientX, startY = ev.clientY, ow = e.w, oh = e.h;
+        compSnapshot();
+        const move = mv => {
+          e.w = Math.min(Math.max(ow + (mv.clientX - startX) / rect.width * 100, 2), 100);
+          e.h = Math.min(Math.max(oh + (mv.clientY - startY) / rect.height * 100, 2), 100);
+          d.style.width = e.w + '%'; d.style.height = e.h + '%';
+        };
+        const up = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); };
+        addEventListener('pointermove', move);
+        addEventListener('pointerup', up);
+      });
+      d.appendChild(rz);
+      cnv.appendChild(d);
+    });
+    compRenderPanel();
+  }
+
+  function compRenderPanel() {
+    const p = $('compPanel');
+    p.innerHTML = '';
+    const e = compEditing.elements[compSel];
+    if (!e) {
+      p.innerHTML = '<span class="hint">Add an element with the buttons above, or click one on the canvas to edit it here.</span>';
+      return;
+    }
+    const mk = html => { const w = document.createElement('div'); w.innerHTML = html; return w.firstElementChild; };
+    const commit = () => { compRender(); };
+
+    if (e.type === 'text') {
+      const ta = mk(`<label>Text<textarea rows="2" maxlength="300"></textarea></label>`);
+      ta.querySelector('textarea').value = e.text;
+      // Live path: typing updates the canvas node directly, no rebuild.
+      ta.querySelector('textarea').addEventListener('input', ev => {
+        e.text = ev.target.value;
+        const node = $('compCanvas').querySelector(`[data-idx="${compSel}"]`);
+        if (node) { node.childNodes[0] && node.childNodes[0].nodeType === 3 ? node.childNodes[0].nodeValue = e.text : node.insertBefore(document.createTextNode(e.text), node.firstChild); }
+      });
+      ta.querySelector('textarea').addEventListener('focus', compSnapshot, { once: true });
+      p.appendChild(ta);
+      const size = mk(`<label>Text size <input type="range" min="2" max="25" step="0.5"></label>`);
+      size.querySelector('input').value = e.size;
+      size.querySelector('input').addEventListener('input', ev => {
+        e.size = parseFloat(ev.target.value);
+        const node = $('compCanvas').querySelector(`[data-idx="${compSel}"]`);
+        if (node) node.style.fontSize = (e.size / 100 * $('compCanvas').getBoundingClientRect().height) + 'px';
+      });
+      p.appendChild(size);
+      const row = mk(`<label>Style<div class="row2">
+        <select data-k="weight"><option value="400">Regular</option><option value="700">Bold</option><option value="900">Heavy</option></select>
+        <select data-k="align"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select>
+      </div></label>`);
+      row.querySelector('[data-k="weight"]').value = e.weight;
+      row.querySelector('[data-k="align"]').value = e.align;
+      row.querySelector('[data-k="weight"]').addEventListener('change', ev => { compSnapshot(); e.weight = +ev.target.value; commit(); });
+      row.querySelector('[data-k="align"]').addEventListener('change', ev => { compSnapshot(); e.align = ev.target.value; commit(); });
+      p.appendChild(row);
+      const colors = mk(`<label>Text color / backing box<div class="row2">
+        <input type="color" data-k="color"><input type="checkbox" data-k="hasbox" style="width:auto"><input type="color" data-k="boxbg">
+      </div></label>`);
+      colors.querySelector('[data-k="color"]').value = e.color;
+      colors.querySelector('[data-k="hasbox"]').checked = !!e.boxBg;
+      colors.querySelector('[data-k="boxbg"]').value = e.boxBg || '#000000';
+      colors.querySelector('[data-k="color"]').addEventListener('change', ev => { compSnapshot(); e.color = ev.target.value; commit(); });
+      colors.querySelector('[data-k="hasbox"]').addEventListener('change', ev => { compSnapshot(); e.boxBg = ev.target.checked ? colors.querySelector('[data-k="boxbg"]').value : null; commit(); });
+      colors.querySelector('[data-k="boxbg"]').addEventListener('change', ev => { if (colors.querySelector('[data-k="hasbox"]').checked) { compSnapshot(); e.boxBg = ev.target.value; commit(); } });
+      p.appendChild(colors);
+    } else if (e.type === 'box') {
+      const c = mk(`<label>Box color <input type="color"></label>`);
+      c.querySelector('input').value = e.color;
+      c.querySelector('input').addEventListener('change', ev => { compSnapshot(); e.color = ev.target.value; commit(); });
+      p.appendChild(c);
+      const r = mk(`<label>Rounded corners <input type="range" min="0" max="20" step="0.5"></label>`);
+      r.querySelector('input').value = e.radius;
+      r.querySelector('input').addEventListener('input', ev => { e.radius = parseFloat(ev.target.value); commit(); });
+      p.appendChild(r);
+    } else {
+      const mm = state.media.find(x => x.id === e.mediaId);
+      p.appendChild(mk(`<span class="hint">${e.type === 'image' ? 'Photo' : 'Video'}: <strong>${esc(mm ? mm.label : '(missing)')}</strong></span>`));
+      const fit = mk(`<label>Fill <select><option value="cover">Fill the frame (crop)</option><option value="contain">Fit inside (bars)</option></select></label>`);
+      fit.querySelector('select').value = e.fit;
+      fit.querySelector('select').addEventListener('change', ev => { compSnapshot(); e.fit = ev.target.value; commit(); });
+      p.appendChild(fit);
+      const r = mk(`<label>Rounded corners <input type="range" min="0" max="20" step="0.5"></label>`);
+      r.querySelector('input').value = e.radius;
+      r.querySelector('input').addEventListener('input', ev => { e.radius = parseFloat(ev.target.value); commit(); });
+      p.appendChild(r);
+      const swap = mk(`<button class="btn small">Swap ${e.type === 'image' ? 'photo' : 'video'}</button>`);
+      swap.addEventListener('click', () => compPick(e.type, mm2 => { compSnapshot(); e.mediaId = mm2.id; commit(); }));
+      p.appendChild(swap);
+    }
+
+    const layer = mk(`<label>Layer<div class="row2">
+      <button class="btn small" data-k="back">Send back</button>
+      <button class="btn small" data-k="fwd">Bring forward</button>
+    </div></label>`);
+    layer.querySelector('[data-k="back"]').addEventListener('click', () => { compSnapshot(); e.z = Math.max((e.z || 0) - 1, 0); commit(); });
+    layer.querySelector('[data-k="fwd"]').addEventListener('click', () => { compSnapshot(); e.z = Math.min((e.z || 0) + 1, 20); commit(); });
+    p.appendChild(layer);
+    const acts = mk(`<div class="row2">
+      <button class="btn small" data-k="dup">Duplicate</button>
+      <button class="btn small danger" data-k="rm">Remove</button>
+    </div>`);
+    acts.querySelector('[data-k="dup"]').addEventListener('click', () => {
+      compSnapshot();
+      const copy = JSON.parse(JSON.stringify(e));
+      copy.x = Math.min(copy.x + 3, 95); copy.y = Math.min(copy.y + 3, 95);
+      compEditing.elements.push(copy);
+      compSel = compEditing.elements.length - 1;
+      compRender();
+    });
+    acts.querySelector('[data-k="rm"]').addEventListener('click', () => {
+      compSnapshot();
+      compEditing.elements.splice(compSel, 1);
+      compSel = compEditing.elements.length ? Math.max(compSel - 1, 0) : -1;
+      compRender();
+    });
+    p.appendChild(acts);
+  }
+
+  function compNextZ() {
+    return Math.min(compEditing.elements.reduce((m2, e) => Math.max(m2, e.z || 0), 0) + 1, 20);
+  }
+  function compAdd(el) {
+    compSnapshot();
+    compEditing.elements.push(el);
+    compSel = compEditing.elements.length - 1;
+    compRender();
+  }
+  $('compAddText').addEventListener('click', () => compAdd({
+    type: 'text', x: 10, y: 10, w: 80, h: 20, z: compNextZ(),
+    text: 'Your text here', size: 8, weight: 700, color: '#ffffff', align: 'center', boxBg: null
+  }));
+  $('compAddBox').addEventListener('click', () => compAdd({
+    type: 'box', x: 10, y: 10, w: 40, h: 30, z: compNextZ(), color: '#ea580c', radius: 2
+  }));
+  $('compAddImage').addEventListener('click', () =>
+    compPick('image', mm => compAdd({ type: 'image', x: 10, y: 10, w: 45, h: 50, z: compNextZ(), mediaId: mm.id, fit: 'cover', radius: 0 })));
+  $('compAddVideo').addEventListener('click', () => {
+    if (compEditing.elements.some(e => e.type === 'video')) { toast('One video per design — TV boxes can only decode one smoothly', true); return; }
+    compPick('video', mm => compAdd({ type: 'video', x: 10, y: 10, w: 55, h: 60, z: compNextZ(), mediaId: mm.id, fit: 'cover', radius: 0 }));
+  });
+
+  // Small picker for the designer: photos or videos only.
+  function compPick(kind, cb) {
+    const list = $('compPickList');
+    list.innerHTML = '';
+    $('compPickTitle').textContent = kind === 'image' ? 'Pick a photo' : 'Pick a video';
+    const options = state.media.filter(m => m.type === kind);
+    if (options.length === 0) {
+      list.innerHTML = `<span class="hint">No ${kind === 'image' ? 'photos' : 'videos'} in the library yet — upload one first.</span>`;
+    }
+    for (const mm of options) {
+      const item = document.createElement('div');
+      item.className = 'picker-item';
+      item.innerHTML = `${thumbHtml(mm, 'row-thumb')}<span class="p-label">${esc(mm.label)}</span>`;
+      item.addEventListener('click', () => { $('compPickModal').classList.add('hidden'); cb(mm); });
+      list.appendChild(item);
+    }
+    $('compPickModal').classList.remove('hidden');
+  }
+  $('compPickCancel').addEventListener('click', () => $('compPickModal').classList.add('hidden'));
+
+  // Canvas keyboard: nudge, delete, undo.
+  $('compCanvas').addEventListener('keydown', ev => {
+    const e = compEditing && compEditing.elements[compSel];
+    if (ev.key === 'z' && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); compUndo(); return; }
+    if (!e) return;
+    const step = ev.shiftKey ? 2 : 0.5;
+    let handled = true;
+    if (ev.key === 'ArrowLeft') e.x = Math.max(e.x - step, 0);
+    else if (ev.key === 'ArrowRight') e.x = Math.min(e.x + step, 98);
+    else if (ev.key === 'ArrowUp') e.y = Math.max(e.y - step, 0);
+    else if (ev.key === 'ArrowDown') e.y = Math.min(e.y + step, 98);
+    else if (ev.key === 'Delete' || ev.key === 'Backspace') {
+      compSnapshot();
+      compEditing.elements.splice(compSel, 1);
+      compSel = compEditing.elements.length ? Math.max(compSel - 1, 0) : -1;
+      compRender();
+      return void ev.preventDefault();
+    } else handled = false;
+    if (handled) {
+      ev.preventDefault();
+      const node = $('compCanvas').querySelector(`[data-idx="${compSel}"]`);
+      if (node) { node.style.left = e.x + '%'; node.style.top = e.y + '%'; }
+    }
+  });
+
+  for (const id of ['compBg1', 'compBg2']) {
+    $(id).addEventListener('input', () => {
+      compEditing.bg = [$('compBg1').value, $('compBg2').value];
+      compCanvasBg();
+    });
+  }
+  $('addCompBtn').addEventListener('click', () => openCompModal(null));
+  $('compCancel').addEventListener('click', () => $('compModal').classList.add('hidden'));
+  $('compSave').addEventListener('click', async () => {
+    try {
+      await api('/api/comps', {
+        method: 'POST',
+        body: JSON.stringify({
+          id: compEditing.id,
+          label: $('compLabel').value,
+          durationSec: parseFloat($('compDur').value) || 10,
+          folderId: compEditing.id ? undefined : (currentFolder !== 'all' ? currentFolder : null),
+          comp: { bg: { colors: compEditing.bg }, elements: compEditing.elements }
+        })
+      });
+      $('compModal').classList.add('hidden');
+      toast(compEditing.id ? 'Design updated — live on every screen using it' : 'Design created');
+    } catch (err) { $('compError').textContent = err.message; }
+  });
 
   // ---------- slide editor ----------
   let editingSlideId = null;
@@ -598,18 +971,13 @@
       const enabled = p.items.filter(it => it.enabled !== false).length;
       const card = document.createElement('div');
       card.className = 'pl-card';
-      const thumbs = p.items.slice(0, 4).map(it => {
-        const m = state.media.find(x => x.id === it.mediaId);
-        return m ? thumbHtml(m, 'row-thumb') : '';
-      }).join('');
       card.innerHTML = `
-        <div class="pl-name">📋 ${esc(p.name)}</div>
-        <div style="display:flex;gap:6px">${thumbs}</div>
+        <div class="pl-name">${esc(p.name)}</div>
         <div class="m-meta">${enabled} of ${p.items.length} item${p.items.length === 1 ? '' : 's'} playing ·
-          ${p.transition === 'fade' ? 'fade transition' : 'no transition'} · on ${p.usedBy} TV${p.usedBy === 1 ? '' : 's'}</div>
+          ${p.transition === 'fade' ? 'fade transition' : 'no transition'} · on ${p.usedBy} screen${p.usedBy === 1 ? '' : 's'}</div>
         <div class="m-actions">
-          <button class="btn tiny" data-act="edit">✏ Edit</button>
-          <button class="btn tiny" data-act="all">Apply to ALL TVs</button>
+          <button class="btn tiny" data-act="edit">Edit</button>
+          <button class="btn tiny" data-act="all">Apply to ALL screens</button>
           <button class="btn tiny danger" data-act="del">Delete</button>
         </div>`;
       card.querySelector('[data-act="edit"]').addEventListener('click', () => openPlaylistModal(p));
@@ -745,7 +1113,7 @@
         const head = document.createElement('div');
         head.className = 'sheet-label';
         head.style.margin = '8px 0 2px';
-        head.textContent = `📁 ${g.name}`;
+        head.textContent = g.name;
         list.appendChild(head);
       }
       for (const m of g.items) {
@@ -822,10 +1190,11 @@
       const strip = p.items.slice(0, 4).map(it => {
         const m = state.media.find(x => x.id === it.mediaId);
         return m ? thumbHtml(m, 'row-thumb') : '';
-      }).join('') || '<div class="cc-big" style="flex:1">📋</div>';
+      }).join('') || '<div class="cc-big" style="flex:1"></div>';
       const counts = { video: 0, image: 0, slide: 0 };
       for (const it of p.items) {
-        const t = (state.media.find(m => m.id === it.mediaId) || {}).type;
+        let t = (state.media.find(m => m.id === it.mediaId) || {}).type;
+        if (t === 'comp') t = 'slide'; // designs count as slides for the reader
         if (counts[t] !== undefined) counts[t]++;
       }
       const parts = [];
@@ -836,10 +1205,10 @@
         key: p.id,
         ribbon: tv.playlistId === p.id,
         strip,
-        name: `📋 ${p.name}`,
+        name: p.name,
         meta: `${p.items.length} item${p.items.length === 1 ? '' : 's'}${parts.length ? ' — ' + parts.join(', ') : ''}<br>` +
           `${p.transition === 'fade' ? 'fade transition' : 'no transition'} · on ${p.usedBy} TV${p.usedBy === 1 ? '' : 's'}`,
-        actions: '<button class="btn tiny" data-edit>✏ Edit playlist</button>'
+        actions: '<button class="btn tiny" data-edit>Edit playlist</button>'
       });
       card.querySelector('[data-edit]').addEventListener('click', () => {
         $('contentModal').classList.add('hidden');
@@ -850,7 +1219,7 @@
     makeCard({
       key: 'custom',
       ribbon: !tv.playlistId && tv.assignedMediaIds.length > 0,
-      big: '🎛',
+      big: '',
       name: 'Custom selection…',
       meta: 'Hand-pick individual media for the chosen TVs — good for one-off setups.'
     });
@@ -858,14 +1227,14 @@
     makeCard({
       key: 'blank',
       ribbon: !tv.playlistId && tv.assignedMediaIds.length === 0,
-      big: '🌙',
+      big: '',
       name: 'Idle screen',
       meta: 'Show the standby screen — no media plays.'
     });
 
     const newCard = makeCard({
       key: 'new',
-      big: '➕',
+      big: '+',
       name: 'New playlist…',
       meta: 'Build a fresh mix and come back to assign it.'
     });
@@ -957,7 +1326,7 @@
       const swatches = [...th.bg, th.headline.fill, th.headline.stroke]
         .map(c => `<span class="sw" style="background:${esc(c)}"></span>`).join('');
       card.innerHTML = `
-        <strong>🎨 ${esc(th.name)}</strong>
+        <strong>${esc(th.name)}</strong>
         <div class="theme-swatches">${swatches}</div>
         <div class="theme-emojis">${esc(th.emojis || '')}</div>
         <div class="m-meta">${(th.elements || []).join(', ') || 'no extra effects'}</div>
@@ -1018,7 +1387,7 @@
         })
       });
       $('themeModal').classList.add('hidden');
-      toast('Theme saved — try it with 🎂 Test on any TV');
+      toast('Theme saved — pick it on any party');
     } catch (err) { $('themeError').textContent = err.message; }
   });
 
@@ -1036,7 +1405,7 @@
         const head = document.createElement('div');
         head.className = 'sheet-label';
         head.style.margin = '8px 0 2px';
-        head.textContent = `📁 ${g.name}`;
+        head.textContent = g.name;
         list.appendChild(head);
       }
       for (const m of g.items) {
@@ -1177,7 +1546,7 @@
         : '<span class="warn">Nothing imported — the existing schedule was left untouched.</span>';
       const parsedLines = (res.parsed || []).map(p =>
         `<span class="${p.confidence === 'high' ? 'ok' : 'warn'}">“${esc(p.byline)}” → ${esc(p.name)}${p.age ? ', turning ' + p.age : ''}` +
-        `${p.confidence === 'high' ? '' : ' — ⚠ check this one'}</span>`).join('<br>');
+        `${p.confidence === 'high' ? '' : ' — check this one'}</span>`).join('<br>');
       const errLines = res.errors.map(er => `<span class="warn">Line ${er.line}: ${esc(er.error)}</span>`).join('<br>');
       box.innerHTML = head + (parsedLines ? '<br>' + parsedLines : '') + (errLines ? '<br>' + errLines : '');
       toast(res.imported > 0 ? `Imported ${res.imported} — review names below` : 'Nothing imported', res.imported === 0);
@@ -1189,13 +1558,13 @@
     const tvSel = $('evTv');
     tvSel.innerHTML = state.tvs.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('');
     const customOpts = (state.settings.customThemes || [])
-      .map(c => `<option value="custom:${c.id}">🎨 ${esc(c.name)}</option>`).join('');
+      .map(c => `<option value="custom:${c.id}">${esc(c.name)}</option>`).join('');
     $('evTheme').innerHTML = `
-      <option value="party">🎉 Party (default)</option>
-      <option value="superhero">🦸 Superhero</option>
-      <option value="princess">👑 Princess</option>
-      <option value="space">🚀 Space</option>
-      <option value="ninja">🥷 Ninja</option>` + customOpts;
+      <option value="party">Party (default)</option>
+      <option value="superhero">Superhero</option>
+      <option value="princess">Princess</option>
+      <option value="space">Space</option>
+      <option value="ninja">Ninja</option>` + customOpts;
     const mediaSel = $('evMedia');
     mediaSel.innerHTML = '<option value="">Use the theme above</option>' +
       state.media.filter(m => m.type === 'video')

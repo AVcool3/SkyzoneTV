@@ -73,18 +73,20 @@ function tvOnline(tvId) {
 
 const IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
 function mediaType(m) {
+  if (m.comp) return 'comp';
   if (m.slide) return 'slide';
   return IMAGE_EXTS.includes(m.ext.toLowerCase()) ? 'image' : 'video';
 }
 // Replacing a file gives it a fresh filename (fileId) so the players' 1-year
 // immutable cache can never serve stale content; the media id stays stable so
 // playlists and assignments keep working.
-function fileUrl(m) { return m.slide ? null : `/media/${m.fileId || m.id}${m.ext}`; }
+function fileUrl(m) { return (m.slide || m.comp) ? null : `/media/${m.fileId || m.id}${m.ext}`; }
 
 function mediaPublic(m) {
   return { id: m.id, label: m.label, originalName: m.originalName, size: m.size,
     uploadedAt: m.uploadedAt, url: fileUrl(m),
-    type: mediaType(m), slide: m.slide || undefined, durationSec: m.durationSec || 8,
+    type: mediaType(m), slide: m.slide || undefined, comp: m.comp || undefined,
+    durationSec: m.durationSec || 8,
     folderId: m.folderId || null };
 }
 
@@ -126,9 +128,24 @@ function dashboardSnapshot() {
 }
 
 function playerItem(m, durationSec) {
-  return { id: m.id, label: m.label, url: fileUrl(m),
+  const item = { id: m.id, label: m.label, url: fileUrl(m),
     type: mediaType(m), slide: m.slide || undefined,
     durationSec: durationSec || m.durationSec || 8 };
+  if (m.comp) {
+    // Element media URLs are resolved at push time so replace-file
+    // cache-busting flows through, and dead references simply drop out.
+    item.comp = {
+      bg: m.comp.bg,
+      elements: m.comp.elements
+        .map(el => {
+          if (el.type !== 'image' && el.type !== 'video') return el;
+          const em = store.medium(el.mediaId);
+          return em ? { ...el, url: fileUrl(em) } : null;
+        })
+        .filter(Boolean)
+    };
+  }
+  return item;
 }
 
 function playerState(tv) {
@@ -158,7 +175,7 @@ function playerState(tv) {
   let override = null;
   if (tv.override) {
     let m = tv.override.mediaId ? store.medium(tv.override.mediaId) : null;
-    if (m && m.slide) m = null; // slides can't back a birthday takeover; use the theme
+    if (m && (m.slide || m.comp)) m = null; // only real videos can back a takeover; use the theme
     // Custom themes are resolved to their spec at send time, so edits to a
     // theme apply to future (and re-pushed) takeovers immediately.
     let theme = tv.override.theme || 'party';
@@ -513,12 +530,89 @@ app.post('/api/slides', requireAuth, (req, res) => {
   res.json({ ok: true, media: mediaPublic(m) });
 });
 
+// ---- Layout designs (compositions: positioned text/image/video/box
+// elements on one 16:9 canvas, rendered natively by the player) ----
+const okHex = c => typeof c === 'string' && /^#[0-9a-fA-F]{6}$/.test(c);
+const num = (v, lo, hi, dflt) => {
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? Math.min(Math.max(n, lo), hi) : dflt;
+};
+
+// Validate and normalize a composition. Returns { comp } or { error }.
+function cleanComp(raw) {
+  if (!raw || typeof raw !== 'object') return { error: 'Missing design data' };
+  const bgColors = Array.isArray(raw.bg?.colors) ? raw.bg.colors.filter(okHex).slice(0, 2) : [];
+  if (bgColors.length === 0) return { error: 'Pick a background color' };
+  const src = Array.isArray(raw.elements) ? raw.elements.slice(0, 12) : [];
+  const elements = [];
+  let videos = 0;
+  for (const e of src) {
+    if (!e || typeof e !== 'object') continue;
+    const base = {
+      type: e.type,
+      x: num(e.x, 0, 98, 5), y: num(e.y, 0, 98, 5),
+      w: num(e.w, 2, 100, 30), h: num(e.h, 2, 100, 20),
+      z: Math.round(num(e.z, 0, 20, 0))
+    };
+    if (e.type === 'text') {
+      const text = String(e.text ?? '').slice(0, 300);
+      if (!text.trim()) continue;
+      elements.push({ ...base, text,
+        size: num(e.size, 1, 30, 6),
+        weight: [400, 700, 900].includes(+e.weight) ? +e.weight : 700,
+        color: okHex(e.color) ? e.color : '#ffffff',
+        align: ['left', 'center', 'right'].includes(e.align) ? e.align : 'center',
+        boxBg: okHex(e.boxBg) ? e.boxBg : null });
+    } else if (e.type === 'image' || e.type === 'video') {
+      const m = store.medium(e.mediaId);
+      if (!m) return { error: 'A placed photo/video no longer exists in the library' };
+      if (mediaType(m) !== e.type) return { error: `"${m.label}" is not a ${e.type === 'image' ? 'photo' : 'video'}` };
+      if (e.type === 'video' && ++videos > 1) return { error: 'One video per design — TV boxes can only decode one smoothly' };
+      elements.push({ ...base, mediaId: e.mediaId,
+        fit: e.fit === 'contain' ? 'contain' : 'cover',
+        radius: num(e.radius, 0, 50, 0) });
+    } else if (e.type === 'box') {
+      elements.push({ ...base,
+        color: okHex(e.color) ? e.color : '#000000',
+        radius: num(e.radius, 0, 50, 0) });
+    }
+  }
+  if (elements.length === 0) return { error: 'Add at least one element to the design' };
+  return { comp: { bg: { colors: bgColors }, elements } };
+}
+
+app.post('/api/comps', requireAuth, (req, res) => {
+  const { id, label, durationSec, folderId, comp } = req.body || {};
+  const cleaned = cleanComp(comp);
+  if (cleaned.error) return res.status(400).json({ error: cleaned.error });
+  let m = id ? store.medium(id) : null;
+  if (m && !m.comp) return res.status(400).json({ error: 'That media is not a layout design' });
+  if (!m) {
+    m = {
+      id: crypto.randomUUID(),
+      label: '', originalName: null, ext: '', size: 0,
+      uploadedAt: new Date().toISOString(),
+      folderId: validFolderId(folderId)
+    };
+    store.data.media.push(m);
+  }
+  m.comp = cleaned.comp;
+  if (typeof label === 'string' && label.trim()) m.label = label.trim().slice(0, 80);
+  if (!m.label) m.label = 'Design';
+  const d = parseFloat(durationSec);
+  if (Number.isFinite(d)) m.durationSec = Math.min(Math.max(d, 1), 3600);
+  store.save();
+  pushAllTvs();
+  pushDashboards();
+  res.json({ ok: true, media: mediaPublic(m) });
+});
+
 // Swap the file behind an existing photo/video while keeping its identity —
 // it stays in every playlist and assignment, and screens refresh instantly.
 app.post('/api/media/:id/replace', requireAuth, (req, res) => {
   const m = store.medium(req.params.id);
   if (!m) return res.status(404).json({ error: 'No such media' });
-  if (m.slide) return res.status(400).json({ error: 'Slides are edited in the dashboard, not replaced' });
+  if (m.slide || m.comp) return res.status(400).json({ error: 'Slides and designs are edited in the dashboard, not replaced' });
   upload.single('file')(req, res, err => {
     if (err) return res.status(400).json({ error: err.message });
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
@@ -575,9 +669,19 @@ app.delete('/api/media/:id', requireAuth, (req, res) => {
     }
   }
   for (const ev of store.data.events) if (ev.mediaId === m.id) ev.mediaId = null;
-  if (!m.slide) { try { fs.unlinkSync(path.join(MEDIA_DIR, (m.fileId || m.id) + m.ext)); } catch {} }
+  // Designs referencing the deleted photo/video lose that element (never the
+  // whole design); screens re-render from the pushed state.
+  let compsTouched = false;
+  for (const other of store.data.media) {
+    if (other.comp && other.comp.elements.some(el => el.mediaId === m.id)) {
+      other.comp.elements = other.comp.elements.filter(el => el.mediaId !== m.id);
+      compsTouched = true;
+    }
+  }
+  if (!m.slide && !m.comp) { try { fs.unlinkSync(path.join(MEDIA_DIR, (m.fileId || m.id) + m.ext)); } catch {} }
   store.save();
-  for (const id of touched) pushTv(id);
+  if (compsTouched) pushAllTvs();
+  else for (const id of touched) pushTv(id);
   pushDashboards();
   res.json({ ok: true });
 });

@@ -218,6 +218,74 @@ const run = async () => {
   state = (await api(token, 'GET', '/api/state')).data;
   check('slide deletable', !state.media.some(x => x.id === slideId));
 
+  // layout designs: positioned elements, validated, media refs resolved live
+  const compRes = await api(token, 'POST', '/api/comps', {
+    label: 'smoke-design', durationSec: 7,
+    comp: { bg: { colors: ['#18181b', '#3f3f46'] }, elements: [
+      { type: 'text', x: 10, y: 10, w: 80, h: 20, z: 2, text: 'Smoke Board', size: 8, weight: 900, color: '#ffffff', align: 'center' },
+      { type: 'box', x: 5, y: 60, w: 30, h: 20, z: 0, color: '#ea580c', radius: 3 },
+      { type: 'video', x: 40, y: 40, w: 50, h: 50, z: 1, mediaId, fit: 'cover' }
+    ] }
+  });
+  check('design created', compRes.status === 200 && compRes.data.media?.type === 'comp');
+  const compId = compRes.data.media.id;
+  const twoVideos = await api(token, 'POST', '/api/comps', {
+    label: 'smoke-design-bad',
+    comp: { bg: { colors: ['#111111'] }, elements: [
+      { type: 'video', x: 0, y: 0, w: 50, h: 50, mediaId, fit: 'cover' },
+      { type: 'video', x: 50, y: 0, w: 50, h: 50, mediaId, fit: 'cover' }
+    ] }
+  });
+  check('design rejects two videos', twoVideos.status === 400);
+  const badRef = await api(token, 'POST', '/api/comps', {
+    label: 'smoke-design-bad2',
+    comp: { bg: { colors: ['#111111'] }, elements: [{ type: 'image', x: 0, y: 0, w: 50, h: 50, mediaId: 'nope', fit: 'cover' }] }
+  });
+  check('design rejects missing media ref', badRef.status === 400);
+  const emptyComp = await api(token, 'POST', '/api/comps', {
+    label: 'smoke-design-bad3', comp: { bg: { colors: ['#111111'] }, elements: [] }
+  });
+  check('design rejects zero elements', emptyComp.status === 400);
+  // design in a playlist reaches the player with the video URL resolved
+  const playerSnapshot = id => new Promise((resolve, reject) => {
+    const w = new WebSocket(BASE.replace('http', 'ws') + '/ws');
+    const t = setTimeout(() => { try { w.close(); } catch {} reject(new Error('ws timeout')); }, 5000);
+    w.onopen = () => w.send(JSON.stringify({ type: 'hello', role: 'player', tvId: id }));
+    w.onmessage = e => { clearTimeout(t); const m = JSON.parse(e.data); w.close(); resolve(m); };
+    w.onerror = () => { clearTimeout(t); reject(new Error('ws error')); };
+  });
+  const compPl = await api(token, 'POST', '/api/playlists', {
+    name: 'Smoke Design List', items: [{ mediaId: compId, durationSec: 7 }]
+  });
+  await api(token, 'POST', `/api/tvs/${tvId}/playlist`, { playlistId: compPl.data.playlist.id });
+  const compWs = await playerSnapshot(tvId);
+  const compItem = compWs.playlist.find(i => i.id === compId);
+  check('design reaches player with resolved media url',
+    compItem?.type === 'comp' && compItem.comp.elements.some(e => e.type === 'video' && typeof e.url === 'string'));
+  // deleting a referenced video strips just that element, not the design
+  const scrapForm = new FormData();
+  scrapForm.append('file', new Blob([new Uint8Array(900)], { type: 'video/mp4' }), 'smoke-scrap.mp4');
+  const scrap = await fetch(BASE + '/api/media', {
+    method: 'POST', headers: { Authorization: 'Bearer ' + token }, body: scrapForm
+  }).then(r => r.json());
+  await api(token, 'POST', '/api/comps', {
+    id: compId, label: 'smoke-design',
+    comp: { bg: { colors: ['#18181b', '#3f3f46'] }, elements: [
+      { type: 'text', x: 10, y: 10, w: 80, h: 20, z: 2, text: 'Smoke Board', size: 8, weight: 900, color: '#ffffff', align: 'center' },
+      { type: 'box', x: 5, y: 60, w: 30, h: 20, z: 0, color: '#ea580c', radius: 3 },
+      { type: 'video', x: 40, y: 40, w: 50, h: 50, z: 1, mediaId: scrap.media.id, fit: 'cover' }
+    ] }
+  });
+  await api(token, 'DELETE', `/api/media/${scrap.media.id}`);
+  state = (await api(token, 'GET', '/api/state')).data;
+  const compAfter = state.media.find(x => x.id === compId);
+  check('deleting referenced media strips the element only',
+    compAfter && compAfter.comp.elements.length === 2 && !compAfter.comp.elements.some(e => e.type === 'video'));
+  await api(token, 'DELETE', `/api/playlists/${compPl.data.playlist.id}`);
+  await api(token, 'DELETE', `/api/media/${compId}`);
+  state = (await api(token, 'GET', '/api/state')).data;
+  check('design deletable', !state.media.some(x => x.id === compId));
+
   // CSV import (uses named TV; far-future dates so nothing fires during the test)
   const uploadCsv = async body => {
     const f = new FormData();

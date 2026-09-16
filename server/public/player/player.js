@@ -54,6 +54,7 @@
   // Build a dashboard-made slide safely (text via textContent, never HTML).
   function renderSlide(el, s) {
     el.textContent = '';
+    el.style.padding = ''; // restore the stylesheet padding a design may have zeroed
     el.style.background = `linear-gradient(135deg, ${s.bg[0]}, ${s.bg[1]})`;
     el.style.color = s.textColor || '#ffffff';
     if (s.badge) {
@@ -72,6 +73,71 @@
       sub.textContent = s.subtext;
       el.appendChild(sub);
     }
+  }
+
+  // Build a layout design: positioned text/image/video/box elements over a
+  // background, all validated server-side and rendered via DOM (never HTML
+  // strings). Font sizes are stored as % of screen height -> vh here.
+  function renderComp(el, comp) {
+    el.textContent = '';
+    el.style.padding = '0';
+    const colors = (comp.bg && comp.bg.colors) || ['#000000'];
+    el.style.background = colors.length > 1
+      ? `linear-gradient(135deg, ${colors[0]}, ${colors[1]})`
+      : colors[0];
+    const els = (comp.elements || []).slice().sort((a, b) => (a.z || 0) - (b.z || 0));
+    for (const e of els) {
+      let node = null;
+      if (e.type === 'text') {
+        node = document.createElement('div');
+        node.textContent = e.text || '';
+        node.style.fontSize = (e.size || 6) + 'vh';
+        node.style.fontWeight = e.weight || 700;
+        node.style.color = e.color || '#ffffff';
+        node.style.textAlign = e.align || 'center';
+        node.style.lineHeight = '1.15';
+        node.style.overflowWrap = 'anywhere';
+        node.style.display = 'flex';
+        node.style.flexDirection = 'column';
+        node.style.justifyContent = 'center';
+        node.style.alignItems = e.align === 'left' ? 'flex-start' : e.align === 'right' ? 'flex-end' : 'center';
+        if (e.boxBg) { node.style.background = e.boxBg; node.style.borderRadius = '1vh'; node.style.padding = '0 1.5vh'; }
+      } else if (e.type === 'image' && e.url) {
+        node = document.createElement('img');
+        node.src = e.url;
+        node.style.objectFit = e.fit || 'cover';
+        node.style.borderRadius = (e.radius || 0) + 'vh';
+        node.onerror = () => { node.style.display = 'none'; };
+      } else if (e.type === 'video' && e.url) {
+        node = document.createElement('video');
+        node.src = e.url;
+        node.muted = !AUDIO;
+        node.loop = true;
+        node.autoplay = true;
+        node.playsInline = true;
+        node.style.objectFit = e.fit || 'cover';
+        node.style.borderRadius = (e.radius || 0) + 'vh';
+        // A broken video hides itself; the rest of the design keeps playing.
+        node.onerror = () => { node.style.display = 'none'; };
+        node.play().catch(() => {});
+      } else if (e.type === 'box') {
+        node = document.createElement('div');
+        node.style.background = e.color || '#000000';
+        node.style.borderRadius = (e.radius || 0) + 'vh';
+      }
+      if (!node) continue;
+      node.style.position = 'absolute';
+      node.style.left = e.x + '%';
+      node.style.top = e.y + '%';
+      node.style.width = e.w + '%';
+      node.style.height = e.h + '%';
+      el.appendChild(node);
+    }
+  }
+
+  // Stop any videos playing inside a composed design in this slot.
+  function stopCompVideos(el) {
+    for (const v of el.querySelectorAll('video')) { v.pause(); v.removeAttribute('src'); v.load(); }
   }
 
   for (const v of [videoA, videoB, overrideVideo]) v.muted = !AUDIO;
@@ -128,7 +194,7 @@
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     let nowPlaying = null;
     if (state && state.power === 'off') nowPlaying = 'Screen off';
-    else if (state && state.override) nowPlaying = `🎂 ${state.override.name}`;
+    else if (state && state.override) nowPlaying = `Party: ${state.override.name}`;
     else if (playlist[current]) nowPlaying = playlist[current].label;
     else nowPlaying = 'Idle';
     ws.send(JSON.stringify({ type: 'status', nowPlaying }));
@@ -157,7 +223,7 @@
   function stopPlayback() {
     clearTimeout(imageTimer);
     imageTimer = null;
-    for (const s of [slotA, slotB]) s.video.pause();
+    for (const s of [slotA, slotB]) { s.video.pause(); stopCompVideos(s.slide); }
   }
 
   function applyState(msg) {
@@ -209,7 +275,7 @@
   // slot shows the current item; the standby slot preloads the next one, so
   // item changes are instant — or a crossfade when the playlist uses fade.
   function setPlaylist(list) {
-    const key = JSON.stringify(list.map(x => [x.url, x.type, x.durationSec, x.slide || 0])) + '|' + transitionMode;
+    const key = JSON.stringify(list.map(x => [x.url, x.type, x.durationSec, x.slide || x.comp || 0])) + '|' + transitionMode;
     if (key === playlistKey && !overrideEl.classList.contains('visible') && !off.classList.contains('visible')) {
       // Same playlist, already playing — don't restart mid-item.
       if (list.length > 0) { playlist = list; show('playlist'); resume(); return; }
@@ -226,7 +292,7 @@
     if (playlist.length === 0) { show('idle'); return; }
     const item = playlist[current];
     if (!item) { current = 0; startCurrent(); return; }
-    if (item.type === 'slide') {
+    if (item.type === 'slide' || item.type === 'comp') {
       startCurrent();
     } else if (item.type === 'image') {
       if (activeSlot.image.src) {
@@ -257,11 +323,13 @@
     standbySlot.video.pause();
     const slot = activeSlot;
 
-    if (item.type === 'slide') {
+    if (item.type === 'slide' || item.type === 'comp') {
       slot.video.pause();
       slot.video.classList.remove('visible');
       slot.image.classList.remove('visible');
-      renderSlide(slot.slide, item.slide || { bg: ['#222222', '#000000'], headline: item.label });
+      stopCompVideos(slot.slide);
+      if (item.type === 'comp') renderComp(slot.slide, item.comp || { bg: { colors: ['#000000'] }, elements: [] });
+      else renderSlide(slot.slide, item.slide || { bg: ['#222222', '#000000'], headline: item.label });
       slot.slide.classList.add('visible');
       errorStreak = 0;
       if (playlist.length > 1) imageTimer = setTimeout(next, (item.durationSec || 8) * 1000);
@@ -269,6 +337,7 @@
       slot.video.pause();
       slot.video.classList.remove('visible');
       slot.slide.classList.remove('visible');
+      stopCompVideos(slot.slide);
       const armed = () => {
         slot.image.classList.add('visible');
         errorStreak = 0;
@@ -281,6 +350,7 @@
     } else {
       slot.image.classList.remove('visible');
       slot.slide.classList.remove('visible');
+      stopCompVideos(slot.slide);
       slot.video.src = item.url;
       slot.video.loop = playlist.length === 1;
       slot.video.classList.add('visible');

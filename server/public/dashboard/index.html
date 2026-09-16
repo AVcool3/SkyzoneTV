@@ -41,8 +41,8 @@
     <span id="dayState" class="day-state"></span>
     <span class="spacer"></span>
     <div class="head-actions">
-      <button id="startDayBtn" class="btn small">▶ Start day</button>
-      <button id="endDayBtn" class="btn small danger">■ End day</button>
+      <button id="startDayBtn" class="btn small">Start day</button>
+      <button id="endDayBtn" class="btn small danger">End day</button>
     </div>
   </header>
 
@@ -66,9 +66,10 @@
       <p>Your library — videos, photos, and slides you can edit right here.</p>
     </div>
     <div class="pane-tools">
-      <label class="btn primary" for="mediaFile">⬆ Upload media</label>
+      <label class="btn primary" for="mediaFile">Upload media</label>
       <input id="mediaFile" type="file" accept="video/mp4,video/webm,video/quicktime,image/jpeg,image/png,image/gif,image/webp,.mp4,.m4v,.webm,.mov,.jpg,.jpeg,.png,.gif,.webp" multiple hidden>
-      <button id="addSlideBtn" class="btn">＋ Create slide</button>
+      <button id="addCompBtn" class="btn primary">+ New design</button>
+      <button id="addSlideBtn" class="btn">+ Quick text slide</button>
       <span class="hint">Videos and photos upload; slides are made right here and stay editable forever.</span>
       <input id="replaceFile" type="file" accept="video/mp4,video/webm,video/quicktime,image/jpeg,image/png,image/gif,image/webp,.mp4,.m4v,.webm,.mov,.jpg,.jpeg,.png,.gif,.webp" hidden>
     </div>
@@ -105,9 +106,9 @@
     </div>
     <h4 class="theme-h">Built-in</h4>
     <div class="theme-chips">
-      <span class="theme-chip">🎉 party</span><span class="theme-chip">🦸 superhero</span>
-      <span class="theme-chip">👑 princess</span><span class="theme-chip">🚀 space</span>
-      <span class="theme-chip">🥷 ninja</span>
+      <span class="theme-chip">party</span><span class="theme-chip">superhero</span>
+      <span class="theme-chip">princess</span><span class="theme-chip">space</span>
+      <span class="theme-chip">ninja</span>
     </div>
     <h4 class="theme-h">Yours</h4>
     <div id="themeList" class="media-list"></div>
@@ -130,11 +131,11 @@
       <button id="addEventBtn" class="btn primary">+ Add party</button>
       <!-- TEMPORARY test import: stands in for the ROLLER feed and is removed
            once the connection above is live. -->
-      <label class="btn" for="testCsvFile">⬆ Test import (temporary)</label>
+      <label class="btn" for="testCsvFile">Test import (temporary)</label>
       <input id="testCsvFile" type="file" accept=".csv,text/csv" hidden>
       <a class="btn ghost" href="sample-test-bookings.csv" download>Sample bookings CSV</a>
       <button id="clearDoneBtn" class="btn ghost">Clear finished</button>
-      <span class="hint">Names and ages are read from the booking text — check the ⚠ rows. Name, age and theme can be changed on any row, even when they look right.</span>
+      <span class="hint">Names and ages are read from the booking text — check the flagged rows. Name, age and theme can be changed on any row, even when they look right.</span>
     </div>
     <div id="csvReport" class="csv-report hidden"></div>
     <div class="table-wrap">
@@ -171,11 +172,11 @@
     <label>Date &amp; time <input id="evStart" type="datetime-local"></label>
     <label>Duration (minutes) <input id="evDuration" type="number" value="5" min="1" max="240"></label>
     <label>Theme <select id="evTheme">
-      <option value="party">🎉 Party (default)</option>
-      <option value="superhero">🦸 Superhero</option>
-      <option value="princess">👑 Princess</option>
-      <option value="space">🚀 Space</option>
-      <option value="ninja">🥷 Ninja</option>
+      <option value="party">Party (default)</option>
+      <option value="superhero">Superhero</option>
+      <option value="princess">Princess</option>
+      <option value="space">Space</option>
+      <option value="ninja">Ninja</option>
     </select></label>
     <label>Background video (optional — overrides the theme) <select id="evMedia"><option value="">Use the theme above</option></select></label>
     <div class="modal-actions">
@@ -294,10 +295,10 @@
     <label>Floating emojis (up to 8 — they drift up the screen) <input id="thEmojis" placeholder="⚽ 🏆 🥅"></label>
     <label>Extra effects
       <span class="check-row">
-        <label class="check"><input id="thSparkles" type="checkbox"> ✨ Sparkles</label>
-        <label class="check"><input id="thBalloons" type="checkbox"> 🎈 Balloons</label>
-        <label class="check"><input id="thDots" type="checkbox"> ⚪ Polka dots</label>
-        <label class="check"><input id="thBursts" type="checkbox"> 💥 Starbursts</label>
+        <label class="check"><input id="thSparkles" type="checkbox"> Sparkles</label>
+        <label class="check"><input id="thBalloons" type="checkbox"> Balloons</label>
+        <label class="check"><input id="thDots" type="checkbox"> Polka dots</label>
+        <label class="check"><input id="thBursts" type="checkbox"> Starbursts</label>
       </span>
     </label>
     <div class="modal-actions">
@@ -315,6 +316,50 @@
     <video id="previewVideo" controls playsinline style="width:100%;max-height:60vh;background:#000;border-radius:8px"></video>
     <img id="previewImage" class="hidden" style="width:100%;max-height:60vh;object-fit:contain;background:#000;border-radius:8px" alt="">
     <div class="modal-actions"><button id="previewClose" class="btn ghost">Close</button></div>
+  </div>
+</div>
+
+<!-- Layout designer -->
+<div id="compModal" class="modal hidden">
+  <div class="modal-card designer">
+    <div class="sheet-head">
+      <div>
+        <h3 id="compTitle">New design</h3>
+        <div class="hint">Drag to move · drag the corner dot to resize · arrow keys nudge · Ctrl+Z undoes</div>
+      </div>
+      <button id="compCancel" class="btn ghost">Close</button>
+    </div>
+    <div class="designer-body">
+      <div class="designer-left">
+        <div class="designer-tools">
+          <button id="compAddText" class="btn small">+ Text</button>
+          <button id="compAddImage" class="btn small">+ Photo</button>
+          <button id="compAddVideo" class="btn small">+ Video</button>
+          <button id="compAddBox" class="btn small">+ Box</button>
+          <span style="flex:1"></span>
+          <span class="hint">Background</span>
+          <span class="color-row"><input id="compBg1" type="color" value="#18181b"><input id="compBg2" type="color" value="#3f3f46"></span>
+        </div>
+        <div id="compCanvas" class="comp-canvas" tabindex="0"></div>
+      </div>
+      <div class="designer-panel" id="compPanel"></div>
+    </div>
+    <div class="modal-actions designer-foot">
+      <label class="foot-field">Name <input id="compLabel" placeholder="Snack bar board"></label>
+      <label class="foot-field">Shows for <input id="compDur" type="number" value="10" min="1" max="3600"> seconds</label>
+      <span style="flex:1"></span>
+      <button id="compSave" class="btn primary">Save design</button>
+    </div>
+    <div id="compError" class="error"></div>
+  </div>
+</div>
+
+<!-- Designer media picker -->
+<div id="compPickModal" class="modal hidden">
+  <div class="modal-card">
+    <h3 id="compPickTitle">Pick media</h3>
+    <div id="compPickList" class="picker-list"></div>
+    <div class="modal-actions"><button id="compPickCancel" class="btn ghost">Cancel</button></div>
   </div>
 </div>
 
