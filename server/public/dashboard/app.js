@@ -845,11 +845,37 @@
   $('compAddBox').addEventListener('click', () => compAdd({
     type: 'box', x: 10, y: 10, w: 40, h: 30, z: compNextZ(), rot: 0, color: '#ea580c', radius: 2
   }));
+  // Place media at its ORIGINAL aspect ratio: probe the file's natural size,
+  // convert to canvas percentages (canvas is 16:9), scale to fit comfortably,
+  // and center it — so it looks like the untouched original until edited.
+  function compAddAtNaturalSize(mm, type) {
+    const place = aspect => {
+      let h = 55;
+      let w = h * aspect * 9 / 16; // % width preserving real aspect on a 16:9 canvas
+      if (w > 88) { h = h * 88 / w; w = 88; }
+      if (h > 88) { w = w * 88 / h; h = 88; }
+      w = Math.max(w, 4); h = Math.max(h, 4);
+      compAdd({ type, x: 50 - w / 2, y: 50 - h / 2, w, h, z: compNextZ(), rot: 0,
+        mediaId: mm.id, fit: 'cover', radius: 0 });
+    };
+    if (type === 'image') {
+      const probe = new Image();
+      probe.onload = () => place(probe.naturalWidth / probe.naturalHeight || 16 / 9);
+      probe.onerror = () => place(16 / 9);
+      probe.src = mm.url;
+    } else {
+      const probe = document.createElement('video');
+      probe.preload = 'metadata';
+      probe.onloadedmetadata = () => place((probe.videoWidth / probe.videoHeight) || 16 / 9);
+      probe.onerror = () => place(16 / 9);
+      probe.src = mm.url;
+    }
+  }
   $('compAddImage').addEventListener('click', () =>
-    compPick('image', mm => compAdd({ type: 'image', x: 10, y: 10, w: 45, h: 50, z: compNextZ(), rot: 0, mediaId: mm.id, fit: 'cover', radius: 0 })));
+    compPick('image', mm => compAddAtNaturalSize(mm, 'image')));
   $('compAddVideo').addEventListener('click', () => {
     if (compEditing.elements.some(e => e.type === 'video')) { toast('One video per design — TV boxes can only decode one smoothly', true); return; }
-    compPick('video', mm => compAdd({ type: 'video', x: 10, y: 10, w: 55, h: 60, z: compNextZ(), rot: 0, mediaId: mm.id, fit: 'cover', radius: 0 }));
+    compPick('video', mm => compAddAtNaturalSize(mm, 'video'));
   });
 
   // Small picker for the designer: photos or videos only.
