@@ -270,6 +270,8 @@ app.get('/healthz', (req, res) => {
 app.use('/media', express.static(MEDIA_DIR, { maxAge: '365d', immutable: true }));
 app.use(express.static(path.join(ROOT, 'public')));
 app.get('/', (req, res) => res.redirect('/dashboard/'));
+// Clean privacy-policy URL (Play Console links to this).
+app.get('/privacy', (req, res) => res.sendFile(path.join(ROOT, 'public', 'privacy.html')));
 // The sideload APK moved with the rebrand; old Downloader links keep working.
 app.get('/skyzone-player.apk', (req, res) => res.redirect(301, '/parkcast-player.apk'));
 

@@ -21,8 +21,8 @@ android {
         applicationId = "com.parkcast.player"
         minSdk = 22          // Fire TV Stick (2nd gen+) and all Google TV devices
         targetSdk = 36       // current Google Play target requirement
-        versionCode = 3
-        versionName = "1.2"
+        versionCode = 4
+        versionName = "1.2.1"
         // Fresh installs connect here automatically — no setup screen. The
         // MENU (☰) remote button still opens the address dialog to override
         // it (demos, migrations, a different venue's server).
