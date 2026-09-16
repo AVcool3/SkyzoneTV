@@ -142,9 +142,11 @@
     $('playlistCount').textContent = (state.playlists || []).length;
     $('eventCount').textContent = state.events.filter(e => e.status !== 'done').length;
     $('themeCount').textContent = 5 + (state.settings.customThemes || []).length;
+    $('studioCount').textContent = state.media.filter(m => m.type === 'comp' || m.type === 'slide').length;
     $('dayState').textContent = state.settings.dayStarted ? 'Day running' : 'Day ended — screens off';
     renderTvs();
     renderMedia();
+    renderStudio();
     renderPlaylists();
     renderEvents();
     renderThemes();
@@ -170,7 +172,7 @@
       const colors = c.bg.colors || ['#333333'];
       const bg = colors.length > 1 ? `linear-gradient(135deg, ${esc(colors[0])}, ${esc(colors[1])})` : esc(colors[0]);
       const inner = (c.elements || []).slice().sort((a, b) => (a.z || 0) - (b.z || 0)).map(e => {
-        const pos = `position:absolute;left:${+e.x}%;top:${+e.y}%;width:${+e.w}%;height:${+e.h}%;`;
+        const pos = `position:absolute;left:${+e.x}%;top:${+e.y}%;width:${+e.w}%;height:${+e.h}%;${+e.rot ? `transform:rotate(${+e.rot}deg);` : ''}`;
         if (e.type === 'text') {
           return `<div style="${pos}font-size:8px;font-weight:${+e.weight || 700};color:${esc(e.color)};overflow:hidden;text-align:${esc(e.align || 'center')};${e.boxBg ? `background:${esc(e.boxBg)};border-radius:2px;` : ''}">${esc(e.text)}</div>`;
         }
@@ -466,6 +468,35 @@
     }
   }
 
+  // Studio: everything made inside the system (designs + slides), minimal chrome.
+  function renderStudio() {
+    const list = $('studioList');
+    list.innerHTML = '';
+    const made = state.media.filter(m => m.type === 'comp' || m.type === 'slide');
+    if (made.length === 0) {
+      list.innerHTML = '<p class="hint">Nothing here yet.</p>';
+      return;
+    }
+    for (const m of made) {
+      const card = document.createElement('div');
+      card.className = 'media-card studio-card';
+      card.innerHTML = `
+        ${thumbHtml(m)}
+        <div class="m-row">
+          <input class="m-label" value="${esc(m.label)}" title="Rename">
+          <button class="btn small" data-act="edit">Edit</button>
+        </div>`;
+      const label = card.querySelector('.m-label');
+      label.addEventListener('change', () =>
+        api(`/api/media/${m.id}`, { method: 'PATCH', body: JSON.stringify({ label: label.value }) })
+          .then(() => toast('Renamed')).catch(e => toast(e.message, true)));
+      label.addEventListener('keydown', e => { if (e.key === 'Enter') label.blur(); });
+      card.querySelector('[data-act="edit"]').addEventListener('click', () =>
+        m.type === 'comp' ? openCompModal(m) : openSlideModal(m));
+      list.appendChild(card);
+    }
+  }
+
   function closeAllMenus() {
     document.querySelectorAll('.kebab .menu').forEach(mn => mn.classList.add('hidden'));
   }
@@ -600,6 +631,7 @@
       d.style.left = e.x + '%'; d.style.top = e.y + '%';
       d.style.width = e.w + '%'; d.style.height = e.h + '%';
       d.style.zIndex = 1 + (e.z || 0);
+      if (e.rot) d.style.transform = `rotate(${e.rot}deg)`;
       if (e.type === 'text') {
         d.textContent = e.text;
         d.style.fontSize = (e.size / 100 * H) + 'px';
@@ -652,23 +684,33 @@
         ev.preventDefault();
         cnv.focus();
       });
-      const rz = document.createElement('div');
-      rz.className = 'resize';
-      rz.addEventListener('pointerdown', ev => {
-        ev.stopPropagation(); ev.preventDefault();
-        const rect = cnv.getBoundingClientRect();
-        const startX = ev.clientX, startY = ev.clientY, ow = e.w, oh = e.h;
-        compSnapshot();
-        const move = mv => {
-          e.w = Math.min(Math.max(ow + (mv.clientX - startX) / rect.width * 100, 2), 100);
-          e.h = Math.min(Math.max(oh + (mv.clientY - startY) / rect.height * 100, 2), 100);
-          d.style.width = e.w + '%'; d.style.height = e.h + '%';
-        };
-        const up = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); };
-        addEventListener('pointermove', move);
-        addEventListener('pointerup', up);
-      });
-      d.appendChild(rz);
+      // Four mutable corners: each drags its own edge pair.
+      const clampP = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+      for (const corner of ['nw', 'ne', 'sw', 'se']) {
+        const rz = document.createElement('div');
+        rz.className = 'resize rz-' + corner;
+        rz.addEventListener('pointerdown', ev => {
+          ev.stopPropagation(); ev.preventDefault();
+          const rect = cnv.getBoundingClientRect();
+          const startX = ev.clientX, startY = ev.clientY;
+          const ox = e.x, oy = e.y, ow = e.w, oh = e.h;
+          compSnapshot();
+          const move = mv => {
+            const dx = (mv.clientX - startX) / rect.width * 100;
+            const dy = (mv.clientY - startY) / rect.height * 100;
+            if (corner.includes('e')) e.w = clampP(ow + dx, 2, 100);
+            if (corner.includes('s')) e.h = clampP(oh + dy, 2, 100);
+            if (corner.includes('w')) { e.w = clampP(ow - dx, 2, 100); e.x = clampP(ox + (ow - e.w), 0, 98); }
+            if (corner.includes('n')) { e.h = clampP(oh - dy, 2, 100); e.y = clampP(oy + (oh - e.h), 0, 98); }
+            d.style.left = e.x + '%'; d.style.top = e.y + '%';
+            d.style.width = e.w + '%'; d.style.height = e.h + '%';
+          };
+          const up = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); };
+          addEventListener('pointermove', move);
+          addEventListener('pointerup', up);
+        });
+        d.appendChild(rz);
+      }
       cnv.appendChild(d);
     });
     compRenderPanel();
@@ -748,6 +790,17 @@
       p.appendChild(swap);
     }
 
+    const rot = mk(`<div class="row2">
+      <button class="btn small" data-k="rot">Rotate</button>
+      <button class="btn small" data-k="rot0">Straighten</button>
+    </div>`);
+    rot.querySelector('[data-k="rot"]').addEventListener('click', () => {
+      compSnapshot(); e.rot = ((e.rot || 0) + 15) % 360; commit();
+    });
+    rot.querySelector('[data-k="rot0"]').addEventListener('click', () => {
+      compSnapshot(); e.rot = 0; commit();
+    });
+    p.appendChild(rot);
     const layer = mk(`<label>Layer<div class="row2">
       <button class="btn small" data-k="back">Send back</button>
       <button class="btn small" data-k="fwd">Bring forward</button>
@@ -786,17 +839,17 @@
     compRender();
   }
   $('compAddText').addEventListener('click', () => compAdd({
-    type: 'text', x: 10, y: 10, w: 80, h: 20, z: compNextZ(),
+    type: 'text', x: 10, y: 10, w: 80, h: 20, z: compNextZ(), rot: 0,
     text: 'Your text here', size: 8, weight: 700, color: '#ffffff', align: 'center', boxBg: null
   }));
   $('compAddBox').addEventListener('click', () => compAdd({
-    type: 'box', x: 10, y: 10, w: 40, h: 30, z: compNextZ(), color: '#ea580c', radius: 2
+    type: 'box', x: 10, y: 10, w: 40, h: 30, z: compNextZ(), rot: 0, color: '#ea580c', radius: 2
   }));
   $('compAddImage').addEventListener('click', () =>
-    compPick('image', mm => compAdd({ type: 'image', x: 10, y: 10, w: 45, h: 50, z: compNextZ(), mediaId: mm.id, fit: 'cover', radius: 0 })));
+    compPick('image', mm => compAdd({ type: 'image', x: 10, y: 10, w: 45, h: 50, z: compNextZ(), rot: 0, mediaId: mm.id, fit: 'cover', radius: 0 })));
   $('compAddVideo').addEventListener('click', () => {
     if (compEditing.elements.some(e => e.type === 'video')) { toast('One video per design — TV boxes can only decode one smoothly', true); return; }
-    compPick('video', mm => compAdd({ type: 'video', x: 10, y: 10, w: 55, h: 60, z: compNextZ(), mediaId: mm.id, fit: 'cover', radius: 0 }));
+    compPick('video', mm => compAdd({ type: 'video', x: 10, y: 10, w: 55, h: 60, z: compNextZ(), rot: 0, mediaId: mm.id, fit: 'cover', radius: 0 }));
   });
 
   // Small picker for the designer: photos or videos only.

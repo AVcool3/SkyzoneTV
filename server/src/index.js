@@ -552,7 +552,8 @@ function cleanComp(raw) {
       type: e.type,
       x: num(e.x, 0, 98, 5), y: num(e.y, 0, 98, 5),
       w: num(e.w, 2, 100, 30), h: num(e.h, 2, 100, 20),
-      z: Math.round(num(e.z, 0, 20, 0))
+      z: Math.round(num(e.z, 0, 20, 0)),
+      rot: Math.round(num(e.rot, 0, 359, 0))
     };
     if (e.type === 'text') {
       const text = String(e.text ?? '').slice(0, 300);

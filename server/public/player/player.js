@@ -131,6 +131,7 @@
       node.style.top = e.y + '%';
       node.style.width = e.w + '%';
       node.style.height = e.h + '%';
+      if (e.rot) node.style.transform = `rotate(${e.rot}deg)`;
       el.appendChild(node);
     }
   }

@@ -429,7 +429,10 @@ select.ev-theme { width: auto; min-width: 112px; }
 .menu-row select { width: auto; flex: 1; padding: 5px 8px; }
 
 /* ---- Layout designer ---- */
-.modal-card.designer { max-width: 1100px; }
+.modal-card.designer {
+  max-width: none; width: 100vw; height: 100vh; max-height: none;
+  border-radius: 0; border: none; position: fixed; inset: 0; overflow-y: auto;
+}
 .designer-body { display: flex; gap: 14px; align-items: flex-start; }
 .designer-left { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .designer-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -441,11 +444,16 @@ select.ev-theme { width: auto; min-width: 112px; }
 .comp-el { position: absolute; cursor: move; user-select: none; }
 .comp-el.sel { outline: 2px solid var(--accent); outline-offset: -1px; }
 .comp-el .resize {
-  position: absolute; right: -7px; bottom: -7px; width: 15px; height: 15px; border-radius: 50%;
-  background: var(--accent); border: 2px solid #fff; cursor: nwse-resize; display: none; z-index: 5;
+  position: absolute; width: 15px; height: 15px; border-radius: 50%;
+  background: var(--accent); border: 2px solid #fff; display: none; z-index: 5;
   box-shadow: 0 1px 4px rgba(0,0,0,0.4);
 }
+.comp-el .resize.rz-nw { left: -7px; top: -7px; cursor: nwse-resize; }
+.comp-el .resize.rz-ne { right: -7px; top: -7px; cursor: nesw-resize; }
+.comp-el .resize.rz-sw { left: -7px; bottom: -7px; cursor: nesw-resize; }
+.comp-el .resize.rz-se { right: -7px; bottom: -7px; cursor: nwse-resize; }
 .comp-el.sel .resize { display: block; }
+.studio-card .thumb { margin-bottom: 4px; }
 .designer-panel {
   width: 252px; flex: none; display: flex; flex-direction: column; gap: 9px;
   background: var(--panel2); border: 1px solid var(--border); border-radius: 10px;

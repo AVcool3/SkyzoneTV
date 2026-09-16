@@ -29,6 +29,7 @@
     <nav class="nav-list">
       <button class="tab active" data-tab="tvs">Screens <span id="tvCount" class="pill"></span></button>
       <button class="tab" data-tab="media">Media <span id="mediaCount" class="pill"></span></button>
+      <button class="tab" data-tab="studio">Studio <span id="studioCount" class="pill"></span></button>
       <button class="tab" data-tab="playlists">Playlists <span id="playlistCount" class="pill"></span></button>
       <button class="tab" data-tab="events">Parties <span id="eventCount" class="pill"></span></button>
       <button class="tab" data-tab="themes">Themes <span id="themeCount" class="pill"></span></button>
@@ -68,9 +69,6 @@
     <div class="pane-tools">
       <label class="btn primary" for="mediaFile">Upload media</label>
       <input id="mediaFile" type="file" accept="video/mp4,video/webm,video/quicktime,image/jpeg,image/png,image/gif,image/webp,.mp4,.m4v,.webm,.mov,.jpg,.jpeg,.png,.gif,.webp" multiple hidden>
-      <button id="addCompBtn" class="btn primary">+ New design</button>
-      <button id="addSlideBtn" class="btn">+ Quick text slide</button>
-      <span class="hint">Videos and photos upload; slides are made right here and stay editable forever.</span>
       <input id="replaceFile" type="file" accept="video/mp4,video/webm,video/quicktime,image/jpeg,image/png,image/gif,image/webp,.mp4,.m4v,.webm,.mov,.jpg,.jpeg,.png,.gif,.webp" hidden>
     </div>
     <div id="folderBar" class="chip-row" style="margin-bottom:14px"></div>
@@ -79,6 +77,18 @@
       <span id="uploadLabel"></span>
     </div>
     <div id="mediaList" class="media-list"></div>
+  </section>
+
+  <!-- Studio: everything made in the system, edited full screen -->
+  <section id="tab-studio" class="tabpane hidden">
+    <div class="page-head">
+      <h1>Studio</h1>
+    </div>
+    <div class="pane-tools">
+      <button id="addCompBtn" class="btn primary">+ New design</button>
+      <button id="addSlideBtn" class="btn">+ Text slide</button>
+    </div>
+    <div id="studioList" class="media-list"></div>
   </section>
 
   <!-- Playlists -->
@@ -322,7 +332,6 @@
     <div class="sheet-head">
       <div>
         <h3 id="compTitle">New design</h3>
-        <div class="hint">Drag to move · drag the corner dot to resize · arrow keys nudge · Ctrl+Z undoes</div>
       </div>
       <button id="compCancel" class="btn ghost">Close</button>
     </div>
