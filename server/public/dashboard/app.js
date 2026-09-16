@@ -396,8 +396,7 @@
             </div>
           </div>
         </div>
-        <div class="m-meta">${(m.type === 'slide' || m.type === 'comp') ? 'made in the dashboard' : `${fmtSize(m.size)} · uploaded ${fmtTime(m.uploadedAt)}`} · ${usedBy} screen${usedBy === 1 ? '' : 's'} · ${inPlaylists} playlist${inPlaylists === 1 ? '' : 's'}</div>
-        ${m.type !== 'video' ? `<div class="m-duration">Shows for <input type="number" class="m-dur" value="${m.durationSec}" min="1" max="3600" step="1"> seconds</div>` : ''}`;
+        <div class="m-meta">${(m.type === 'slide' || m.type === 'comp') ? 'made in the dashboard' : `${fmtSize(m.size)} · uploaded ${fmtTime(m.uploadedAt)}`} · ${usedBy} screen${usedBy === 1 ? '' : 's'} · ${inPlaylists} playlist${inPlaylists === 1 ? '' : 's'}</div>`;
 
       // Three-dot menu: hidden until clicked, one open at a time.
       const kebabBtn = card.querySelector('.kebab-btn');
@@ -418,11 +417,6 @@
         api(`/api/media/${m.id}`, { method: 'PATCH', body: JSON.stringify({ label: label.value }) })
           .then(() => toast('Renamed')).catch(e => toast(e.message, true)));
       label.addEventListener('keydown', e => { if (e.key === 'Enter') label.blur(); });
-
-      const durInput = card.querySelector('.m-dur');
-      if (durInput) durInput.addEventListener('change', () =>
-        api(`/api/media/${m.id}`, { method: 'PATCH', body: JSON.stringify({ durationSec: parseFloat(durInput.value) }) })
-          .then(() => toast('Slide timing updated')).catch(e => toast(e.message, true)));
 
       const folderSel = card.querySelector('.m-folder');
       if (folderSel) folderSel.addEventListener('change', () =>
@@ -582,7 +576,6 @@
     compUndoStack = [];
     $('compTitle').textContent = m ? `Edit "${m.label}"` : 'New design';
     $('compLabel').value = compEditing.label;
-    $('compDur').value = compEditing.durationSec;
     $('compBg1').value = compEditing.bg[0];
     $('compBg2').value = compEditing.bg[1];
     $('compError').textContent = '';
@@ -866,7 +859,6 @@
         body: JSON.stringify({
           id: compEditing.id,
           label: $('compLabel').value,
-          durationSec: parseFloat($('compDur').value) || 10,
           folderId: compEditing.id ? undefined : (currentFolder !== 'all' ? currentFolder : null),
           comp: { bg: { colors: compEditing.bg }, elements: compEditing.elements }
         })
@@ -909,7 +901,6 @@
     $('slBg1').value = s.bg?.[0] || '#ff6a00';
     $('slBg2').value = s.bg?.[1] || '#d92b6a';
     $('slText').value = s.textColor || '#ffffff';
-    $('slDur').value = m ? m.durationSec : 8;
     $('slideError').textContent = '';
     slidePreviewRefresh();
     $('slideModal').classList.remove('hidden');
@@ -924,7 +915,6 @@
           id: editingSlideId,
           label: $('slLabel').value,
           folderId: editingSlideId ? undefined : (currentFolder !== 'all' ? currentFolder : null),
-          durationSec: parseFloat($('slDur').value) || 8,
           slide: {
             bg: [$('slBg1').value, $('slBg2').value],
             headline: $('slHeadline').value,
