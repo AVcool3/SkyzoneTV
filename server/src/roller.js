@@ -23,8 +23,10 @@
 import { parseByline } from './byline.js';
 
 const BASE = process.env.ROLLER_BASE_URL || 'https://api.roller.app';
-const CLIENT_ID = process.env.ROLLER_CLIENT_ID || '';
-const CLIENT_SECRET = process.env.ROLLER_CLIENT_SECRET || '';
+// trim: a pasted trailing space/newline in an env value is the #1 cause
+// of "credentials rejected" that look correct on screen.
+const CLIENT_ID = (process.env.ROLLER_CLIENT_ID || '').trim();
+const CLIENT_SECRET = (process.env.ROLLER_CLIENT_SECRET || '').trim();
 
 export function rollerConfigured() {
   return Boolean(CLIENT_ID && CLIENT_SECRET);
@@ -51,7 +53,10 @@ async function getToken() {
   });
   if (!res.ok) {
     const body = (await res.text().catch(() => '')).slice(0, 200);
-    throw new Error(`ROLLER auth failed (${res.status}) ${body}`);
+    const hint = res.status === 400
+      ? ' — ROLLER accepted the request format but rejected the credential values: re-copy both keys (no spaces), confirm they are a matching pair from the same venue, and that API access is enabled for the venue.'
+      : '';
+    throw new Error(`ROLLER auth failed (${res.status}) ${body}${hint}`);
   }
   const data = await res.json();
   cachedToken = {
