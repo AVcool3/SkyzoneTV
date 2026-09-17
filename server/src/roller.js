@@ -49,7 +49,10 @@ async function getToken() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ client_id: CLIENT_ID, client_secret: CLIENT_SECRET })
   });
-  if (!res.ok) throw new Error(`ROLLER auth failed (${res.status})`);
+  if (!res.ok) {
+    const body = (await res.text().catch(() => '')).slice(0, 200);
+    throw new Error(`ROLLER auth failed (${res.status}) ${body}`);
+  }
   const data = await res.json();
   cachedToken = {
     token: data.access_token,
@@ -64,7 +67,10 @@ async function fetchBookingsForDate(date) {
   const res = await fetch(`${BASE}/bookings?date=${encodeURIComponent(date)}`, {
     headers: { Authorization: `Bearer ${token}` }
   });
-  if (!res.ok) throw new Error(`ROLLER bookings fetch failed (${res.status})`);
+  if (!res.ok) {
+    const body = (await res.text().catch(() => '')).slice(0, 200);
+    throw new Error(`ROLLER bookings fetch failed (${res.status}) ${body}`);
+  }
   const data = await res.json();
   const list = Array.isArray(data) ? data : (data.items || data.bookings || []);
   const rows = [];
@@ -99,7 +105,8 @@ export async function rollerSync(store, { matchTv, days = 1 } = {}) {
   for (const date of dates) {
     let rows;
     try { rows = await fetchBookingsForDate(date); }
-    catch (e) { errors.push({ date, error: e.message }); continue; }
+    catch (e) { console.error('[roller]', date, e.message); errors.push({ date, error: e.message }); continue; }
+    if (rows.length === 0) errors.push({ date, error: 'ROLLER returned no bookings for this date' });
     for (const row of rows) {
       if (!row.externalRef) continue;
       const tv = matchTv ? matchTv(store.data.tvs, row.roomLabel) : null;

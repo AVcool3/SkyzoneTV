@@ -1596,6 +1596,15 @@
       const r = await api('/api/roller/sync', { method: 'POST' });
       toast(`ROLLER sync: ${r.imported} new, ${r.updated} updated` +
         (r.errors?.length ? ` — ${r.errors.length} problem(s)` : ''));
+      // Show the full sync report so problems are diagnosable, not hidden.
+      const box = $('csvReport');
+      box.classList.remove('hidden');
+      const head = r.imported > 0
+        ? `<span class="ok">Imported ${r.imported} booking${r.imported === 1 ? '' : 's'} from ROLLER.</span>`
+        : '<span class="warn">Sync ran but imported nothing.</span>';
+      const lines = (r.errors || []).map(er =>
+        `<span class="warn">${esc(er.date ? er.date + ': ' : '')}${esc(er.error)}</span>`).join('<br>');
+      box.innerHTML = head + (lines ? '<br>' + lines : '');
     } catch (err) { toast(err.message, true); }
   });
 
