@@ -1051,7 +1051,7 @@ app.get('/api/roller/status', requireAuth, (req, res) => res.json(rollerStatus()
 
 app.post('/api/roller/sync', requireAuth, async (req, res) => {
   try {
-    const result = await rollerSync(store, { matchTv });
+    const result = await rollerSync(store, { matchTv, days: 7 }); // this week's parties, not just today's
     if (result.imported || result.updated) pushDashboards();
     res.json({ ok: true, ...result });
   } catch (e) {
