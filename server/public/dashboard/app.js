@@ -54,6 +54,13 @@
     localStorage.removeItem('parkcast.token');
     localStorage.removeItem('skyzone.token');
     if (ws) { ws.onclose = null; ws.close(); ws = null; }
+    // A stale toast (or a filled signup form with a typed password) must not
+    // survive into the next person's session on a shared front-desk computer.
+    clearTimeout(toastTimer);
+    $('toast').classList.add('hidden');
+    $('signinForm').reset();
+    $('signupForm').reset();
+    showAuthTab('signin');
     $('app').classList.add('hidden');
     $('login').classList.remove('hidden');
   }
@@ -81,6 +88,9 @@
       if (!res.ok) throw new Error(data.error || 'Something went wrong');
       token = data.token;
       localStorage.setItem('parkcast.token', token);
+      // Drop the #signup/#signin entry hash so later reloads and sign-outs
+      // start from the normal sign-in tab, not the landing-page deep link.
+      if (location.hash) history.replaceState(null, '', location.pathname);
       enterApp();
     } catch (err) {
       $('loginError').textContent = err.message;
@@ -167,6 +177,7 @@
     $('studioCount').textContent = state.media.filter(m => m.type === 'comp' || m.type === 'slide').length;
     $('dayState').textContent = state.settings.dayStarted ? 'Day running' : 'Day ended — screens off';
     $('venueTag').textContent = state.settings.venueName || '';
+    $('venueTagTop').textContent = state.settings.venueName || '';
     renderTvs();
     renderMedia();
     renderStudio();
@@ -1723,6 +1734,7 @@
   });
 
   $('signoutBtn').addEventListener('click', () => logout());
+  $('signoutBtnTop').addEventListener('click', () => logout());
 
   $('claimBtn').addEventListener('click', () => {
     const code = prompt('Enter the 6-digit code shown on the TV:');
