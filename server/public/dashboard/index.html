@@ -13,19 +13,34 @@
 
 <!-- Login -->
 <div id="login" class="view">
-  <form id="loginForm" class="login-card">
+  <div class="login-card">
     <div class="logo">PARK<span>CAST</span></div>
-    <div class="login-sub">Venue screen control</div>
-    <input id="password" type="password" placeholder="Dashboard password" autocomplete="current-password" autofocus>
-    <button type="submit" class="btn primary wide">Sign in</button>
+    <div class="auth-tabs">
+      <button id="tabSignin" class="auth-tab active" type="button">Sign in</button>
+      <button id="tabSignup" class="auth-tab" type="button">Sign up</button>
+    </div>
+    <form id="signinForm" class="auth-form">
+      <input id="siEmail" type="email" placeholder="Email" autocomplete="email" required>
+      <input id="siPassword" type="password" placeholder="Password" autocomplete="current-password" required>
+      <button type="submit" class="btn primary wide">Sign in</button>
+    </form>
+    <form id="signupForm" class="auth-form hidden">
+      <input id="suVenue" placeholder="Venue name" required maxlength="60">
+      <input id="suName" placeholder="Your name" maxlength="60">
+      <input id="suEmail" type="email" placeholder="Email" autocomplete="email" required>
+      <input id="suPassword" type="password" placeholder="Password (8+ characters)" autocomplete="new-password" required minlength="8">
+      <button type="submit" class="btn primary wide">Create workspace</button>
+    </form>
     <div id="loginError" class="error"></div>
-  </form>
+    <a class="hint" href="/">Back to parkcast home</a>
+  </div>
 </div>
 
 <!-- App: sidebar of pages + main column -->
 <div id="app" class="view hidden">
   <aside class="side-nav">
     <div class="logo small">PARK<span>CAST</span></div>
+    <div id="venueTag" class="venue-tag"></div>
     <nav class="nav-list">
       <button class="tab active" data-tab="tvs">Screens <span id="tvCount" class="pill"></span></button>
       <button class="tab" data-tab="media">Media <span id="mediaCount" class="pill"></span></button>
@@ -34,6 +49,10 @@
       <button class="tab" data-tab="events">Parties <span id="eventCount" class="pill"></span></button>
       <button class="tab" data-tab="themes">Themes <span id="themeCount" class="pill"></span></button>
     </nav>
+    <div class="nav-foot">
+      <a class="btn ghost" href="mailto:srini.vanukuri@gmail.com?subject=ParkCast%20support">Support</a>
+      <button id="signoutBtn" class="btn ghost">Sign out</button>
+    </div>
   </aside>
 
   <div class="main">
@@ -54,6 +73,7 @@
       <p>Every TV in the venue — pair it, name it after its room, and choose what plays.</p>
     </div>
     <div class="pane-tools">
+      <button id="claimBtn" class="btn primary">+ Add screen</button>
       <button id="assignAllBtn" class="btn">Choose media for ALL screens…</button>
       <span class="hint">Tip: open <code id="playerUrl"></code> on a TV to pair it — it appears here automatically.</span>
     </div>

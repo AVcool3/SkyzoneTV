@@ -98,7 +98,7 @@ async function fetchBookingsForDate(date) {
 // Mirrors the test-CSV semantics: parsed name/age with confidence, everything
 // editable afterwards, and existing edits are never clobbered — a booking
 // already imported (matched by externalRef) only has its time/room refreshed.
-export async function rollerSync(store, { matchTv, days = 1 } = {}) {
+export async function rollerSync(store, { matchTv, days = 1, venueId } = {}) {
   if (!rollerConfigured()) return { configured: false, imported: 0, updated: 0, errors: [] };
   const errors = [];
   let imported = 0, updated = 0;
@@ -114,9 +114,9 @@ export async function rollerSync(store, { matchTv, days = 1 } = {}) {
     if (rows.length === 0) errors.push({ date, error: 'ROLLER returned no bookings for this date' });
     for (const row of rows) {
       if (!row.externalRef) continue;
-      const tv = matchTv ? matchTv(store.data.tvs, row.roomLabel) : null;
+      const tv = matchTv ? matchTv(store.tvsOf(venueId), row.roomLabel) : null;
       if (!tv) { errors.push({ date, error: `No TV matches room "${row.roomLabel}" (booking ${row.externalRef})` }); continue; }
-      const existing = store.data.events.find(e => e.source === 'roller' && e.externalRef === row.externalRef);
+      const existing = store.data.events.find(e => e.venueId === venueId && e.source === 'roller' && e.externalRef === row.externalRef);
       if (existing) {
         // Refresh schedule facts only; the operator's name/age/theme edits win.
         if (existing.status === 'scheduled') {
@@ -130,6 +130,7 @@ export async function rollerSync(store, { matchTv, days = 1 } = {}) {
       const parsed = parseByline(row.byline);
       store.data.events.push({
         id: crypto.randomUUID(),
+        venueId,
         tvId: tv.id,
         name: parsed.name || 'Birthday Star',
         age: parsed.age,

@@ -58,22 +58,44 @@
     $('login').classList.remove('hidden');
   }
 
-  $('loginForm').addEventListener('submit', async e => {
-    e.preventDefault();
+  // Sign in / Sign up tabs; /dashboard/#signup preselects the signup form.
+  function showAuthTab(which) {
+    $('tabSignin').classList.toggle('active', which === 'signin');
+    $('tabSignup').classList.toggle('active', which === 'signup');
+    $('signinForm').classList.toggle('hidden', which !== 'signin');
+    $('signupForm').classList.toggle('hidden', which !== 'signup');
+    $('loginError').textContent = '';
+  }
+  $('tabSignin').addEventListener('click', () => showAuthTab('signin'));
+  $('tabSignup').addEventListener('click', () => showAuthTab('signup'));
+  if (location.hash === '#signup') showAuthTab('signup');
+
+  async function authenticate(path, body) {
     $('loginError').textContent = '';
     try {
-      const res = await fetch('/api/login', {
+      const res = await fetch(path, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: $('password').value })
+        body: JSON.stringify(body)
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Login failed');
+      if (!res.ok) throw new Error(data.error || 'Something went wrong');
       token = data.token;
       localStorage.setItem('parkcast.token', token);
       enterApp();
     } catch (err) {
       $('loginError').textContent = err.message;
     }
+  }
+  $('signinForm').addEventListener('submit', e => {
+    e.preventDefault();
+    authenticate('/api/signin', { email: $('siEmail').value, password: $('siPassword').value });
+  });
+  $('signupForm').addEventListener('submit', e => {
+    e.preventDefault();
+    authenticate('/api/signup', {
+      venue: $('suVenue').value, name: $('suName').value,
+      email: $('suEmail').value, password: $('suPassword').value
+    });
   });
 
   async function enterApp() {
@@ -144,6 +166,7 @@
     $('themeCount').textContent = 5 + (state.settings.customThemes || []).length;
     $('studioCount').textContent = state.media.filter(m => m.type === 'comp' || m.type === 'slide').length;
     $('dayState').textContent = state.settings.dayStarted ? 'Day running' : 'Day ended — screens off';
+    $('venueTag').textContent = state.settings.venueName || '';
     renderTvs();
     renderMedia();
     renderStudio();
@@ -1697,6 +1720,16 @@
   $('endDayBtn').addEventListener('click', () => {
     if (!confirm(`End the day? All ${state?.tvs.length ?? ''} screens go dark until you start the day again.`)) return;
     api('/api/day/end', { method: 'POST' }).then(() => toast('Day ended — screens off')).catch(e => toast(e.message, true));
+  });
+
+  $('signoutBtn').addEventListener('click', () => logout());
+
+  $('claimBtn').addEventListener('click', () => {
+    const code = prompt('Enter the 6-digit code shown on the TV:');
+    if (!code) return;
+    api('/api/tvs/claim', { method: 'POST', body: JSON.stringify({ code }) })
+      .then(r => toast(`Screen added as ${r.tv.name} — rename it after its room`))
+      .catch(e => toast(e.message, true));
   });
 
   // ---------- boot ----------

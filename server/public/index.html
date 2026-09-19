@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ParkCast</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.png" sizes="48x48" type="image/png">
+<style>
+  :root {
+    --bg: #fafafa; --panel: #ffffff; --border: #e4e4e7; --text: #18181b;
+    --muted: #71717a; --accent: #ea580c; --accent-strong: #c2410c; --blue: #2563eb;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: 'Segoe UI', Roboto, -apple-system, Arial, sans-serif;
+    font-size: 16px; line-height: 1.5; min-height: 100vh;
+    display: flex; flex-direction: column;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px; padding: 18px 28px;
+    background: var(--panel); border-bottom: 1px solid var(--border);
+  }
+  .logo { font-weight: 800; letter-spacing: 0.04em; font-size: 24px; }
+  .logo span { color: var(--accent); }
+  .spacer { flex: 1; }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--panel); color: var(--text); border: 1px solid #d4d4d8;
+    border-radius: 8px; padding: 10px 18px; font-size: 15px; font-weight: 600;
+    cursor: pointer; text-decoration: none; transition: background 0.15s;
+  }
+  .btn:hover { background: #f4f4f5; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: var(--accent-strong); }
+  main { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 72px 20px 40px; text-align: center; }
+  h1 { font-size: clamp(30px, 6vw, 46px); font-weight: 800; letter-spacing: -0.01em; max-width: 640px; }
+  .sub { color: var(--muted); font-size: 18px; margin-top: 12px; max-width: 520px; }
+  .cta { display: flex; gap: 12px; margin-top: 30px; flex-wrap: wrap; justify-content: center; }
+  .cta .btn { padding: 13px 26px; font-size: 16px; }
+  .trio {
+    display: flex; gap: 14px; margin-top: 64px; flex-wrap: wrap; justify-content: center; max-width: 860px;
+  }
+  .trio div {
+    flex: 1 1 240px; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px; text-align: left;
+  }
+  .trio b { display: block; font-size: 16px; margin-bottom: 4px; }
+  .trio span { color: var(--muted); font-size: 14px; }
+  #contact {
+    margin-top: 72px; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 14px; padding: 30px 34px; max-width: 560px; width: 100%;
+  }
+  #contact h2 { font-size: 20px; font-weight: 800; }
+  #contact p { color: var(--muted); font-size: 15px; margin-top: 6px; }
+  #contact .btn { margin-top: 16px; }
+  footer {
+    padding: 20px 28px; color: var(--muted); font-size: 13px;
+    display: flex; gap: 16px; justify-content: center; border-top: 1px solid var(--border);
+  }
+  footer a { color: var(--muted); }
+</style>
+</head>
+<body>
+  <header>
+    <div class="logo">PARK<span>CAST</span></div>
+    <span class="spacer"></span>
+    <a class="btn" href="/dashboard/#signin">Sign in</a>
+    <a class="btn primary" href="/dashboard/#signup">Sign up</a>
+  </header>
+
+  <main>
+    <h1>Every screen in your venue, run from one place</h1>
+    <p class="sub">Playlists, promos, and automatic birthday-party takeovers — on the TVs you already own.</p>
+    <div class="cta">
+      <a class="btn primary" href="/dashboard/#signup">Sign up</a>
+      <a class="btn" href="/dashboard/#signin">Sign in</a>
+    </div>
+
+    <div class="trio">
+      <div><b>Unlimited screens</b><span>One price per venue. Need another TV? Plug it in.</span></div>
+      <div><b>Party takeovers</b><span>The birthday kid's name on the right room's screen, automatically.</span></div>
+      <div><b>Built-in designer</b><span>Compose photos, video, and text into boards — live on screens instantly.</span></div>
+    </div>
+
+    <div id="contact">
+      <h2>Deployment support</h2>
+      <p>Setting up a venue, migrating from another system, or connecting your booking platform — we help directly.</p>
+      <a class="btn primary" href="mailto:srini.vanukuri@gmail.com?subject=ParkCast%20deployment%20support">Contact us</a>
+      <p style="margin-top:10px;font-size:13px">srini.vanukuri@gmail.com</p>
+    </div>
+  </main>
+
+  <footer>
+    <span>ParkCast</span>
+    <a href="/privacy">Privacy</a>
+    <a href="mailto:srini.vanukuri@gmail.com">Support</a>
+  </footer>
+</body>
+</html>

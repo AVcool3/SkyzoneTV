@@ -40,25 +40,56 @@ if (!ADMIN_PASSWORD) {
 }
 
 // ---------------------------------------------------------------------------
-// Auth (dashboard only; players are unauthenticated on the local network)
+// Auth: vendor accounts. Each user belongs to one venue (workspace); every
+// API call is scoped to the caller's venue. The legacy ADMIN_PASSWORD login
+// maps to a virtual owner of the default venue so existing setups keep
+// working. Players stay unauthenticated (they pair by code).
 // ---------------------------------------------------------------------------
-function issueToken() {
+const OWNER_EMAIL = (process.env.OWNER_EMAIL || '').trim().toLowerCase();
+
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(password, salt, 32).toString('hex');
+  return `${salt}:${hash}`;
+}
+function verifyPassword(password, stored) {
+  const [salt, hash] = String(stored || '').split(':');
+  if (!salt || !hash) return false;
+  const probe = crypto.scryptSync(password, salt, 32);
+  const known = Buffer.from(hash, 'hex');
+  return probe.length === known.length && crypto.timingSafeEqual(probe, known);
+}
+
+function issueToken(userId) {
   const token = crypto.randomBytes(24).toString('hex');
   const tokens = store.data.settings.tokens;
-  tokens.push(token);
-  while (tokens.length > 20) tokens.shift();
+  tokens.push({ token, userId });
+  while (tokens.length > 200) tokens.shift();
   store.save();
   return token;
 }
-function validToken(token) {
-  return !!token && store.data.settings.tokens.includes(token);
+// Resolve a bearer token to { userId, venueId } — null when invalid.
+function sessionFor(token) {
+  if (!token) return null;
+  const entry = store.data.settings.tokens.find(t => t.token === token);
+  if (!entry) return null;
+  if (entry.userId === 'legacy-admin') {
+    return { userId: 'legacy-admin', venueId: store.defaultVenueId() };
+  }
+  const user = store.user(entry.userId);
+  return user ? { userId: user.id, venueId: user.venueId } : null;
 }
 function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : null;
-  if (!validToken(token)) return res.status(401).json({ error: 'Not logged in' });
+  const session = sessionFor(token);
+  if (!session) return res.status(401).json({ error: 'Not logged in' });
+  req.userId = session.userId;
+  req.venueId = session.venueId;
   next();
 }
+// True when an item exists AND belongs to the caller's venue.
+const owned = (req, item) => !!item && item.venueId === req.venueId;
 
 // ---------------------------------------------------------------------------
 // State snapshots
@@ -90,14 +121,15 @@ function mediaPublic(m) {
     folderId: m.folderId || null };
 }
 
-function validFolderId(folderId) {
-  return folderId && store.data.folders.some(f => f.id === folderId) ? folderId : null;
+function validFolderId(venueId, folderId) {
+  return folderId && store.data.folders.some(f => f.id === folderId && f.venueId === venueId) ? folderId : null;
 }
 
-function dashboardSnapshot() {
+function dashboardSnapshot(venueId) {
+  const venue = store.venue(venueId) || store.venue(store.defaultVenueId());
   return {
     type: 'state',
-    tvs: store.data.tvs.map(t => ({
+    tvs: store.tvsOf(venue.id).map(t => ({
       id: t.id, name: t.name, power: t.power, online: tvOnline(t.id),
       lastSeen: t.lastSeen, assignedMediaIds: t.assignedMediaIds,
       playlistId: t.playlistId || null,
@@ -107,21 +139,21 @@ function dashboardSnapshot() {
       nowPlaying: t.nowPlaying || null,
       override: t.override ? { name: t.override.name, endsAt: t.override.endsAt } : null
     })),
-    media: store.data.media.map(mediaPublic),
-    folders: store.data.folders,
-    playlists: store.data.playlists.map(p => ({
+    media: store.mediaOf(venue.id).map(mediaPublic),
+    folders: store.foldersOf(venue.id),
+    playlists: store.playlistsOf(venue.id).map(p => ({
       id: p.id, name: p.name, transition: p.transition || 'none',
       items: p.items,
-      usedBy: store.data.tvs.filter(t => t.playlistId === p.id).length
+      usedBy: store.tvsOf(venue.id).filter(t => t.playlistId === p.id).length
     })),
-    events: store.data.events.map(e => ({
+    events: store.eventsOf(venue.id).map(e => ({
       ...e, tvName: store.tv(e.tvId)?.name || '(removed TV)',
       mediaLabel: e.mediaId ? (store.medium(e.mediaId)?.label || null) : null
     })),
     settings: {
-      dayStarted: store.data.settings.dayStarted,
-      customThemes: store.data.settings.customThemes,
-      venueName: venueName()
+      dayStarted: venue.dayStarted !== false,
+      customThemes: venue.customThemes || [],
+      venueName: venue.name
     },
     serverTime: new Date().toISOString()
   };
@@ -149,8 +181,8 @@ function playerItem(m, durationSec) {
 }
 
 function playerState(tv) {
-  // Unapproved screens get no content — just their pairing code.
-  if (tv.approved === false) {
+  // Unclaimed/unapproved screens get no content — just their pairing code.
+  if (tv.approved === false || !tv.venueId) {
     return { type: 'state', tv: { id: tv.id, name: tv.name }, power: 'on',
       approved: false, pairCode: tv.pairCode || '', fit: 'contain',
       playlist: [], transition: 'none', override: null };
@@ -181,7 +213,7 @@ function playerState(tv) {
     let theme = tv.override.theme || 'party';
     let themeSpec = null;
     if (theme.startsWith('custom:')) {
-      const ct = store.data.settings.customThemes.find(c => `custom:${c.id}` === theme);
+      const ct = (store.venue(tv.venueId)?.customThemes || []).find(c => `custom:${c.id}` === theme);
       if (ct) {
         theme = 'custom';
         themeSpec = { bg: ct.bg, headline: ct.headline, confetti: ct.confetti, emojis: ct.emojis, elements: ct.elements };
@@ -200,14 +232,7 @@ function playerState(tv) {
   }
   return { type: 'state', tv: { id: tv.id, name: tv.name }, power: tv.power,
     approved: true, fit: tv.fit || 'contain', playlist, transition, override,
-    venueName: venueName() };
-}
-
-// The venue name shown on guest-facing screens (birthday subline). Settable
-// per instance via /api/settings or the VENUE_NAME env var, so venue #2
-// never shows venue #1's brand.
-function venueName() {
-  return store.data.settings.venueName || process.env.VENUE_NAME || '';
+    venueName: store.venue(tv.venueId)?.name || '' };
 }
 
 function pushTv(tvId) {
@@ -221,10 +246,13 @@ function pushTv(tvId) {
 
 function pushAllTvs() { for (const tv of store.data.tvs) pushTv(tv.id); }
 
-function pushDashboards() {
-  const msg = JSON.stringify(dashboardSnapshot());
+function pushDashboards(venueId) {
+  const cache = new Map();
   for (const ws of dashboardSockets) {
-    if (ws.readyState === ws.OPEN) ws.send(msg);
+    if (ws.readyState !== ws.OPEN) continue;
+    if (venueId && ws.venueId !== venueId) continue;
+    if (!cache.has(ws.venueId)) cache.set(ws.venueId, JSON.stringify(dashboardSnapshot(ws.venueId)));
+    ws.send(cache.get(ws.venueId));
   }
 }
 
@@ -269,7 +297,6 @@ app.get('/healthz', (req, res) => {
 // Static: dashboard, player, media files (range requests supported by express.static)
 app.use('/media', express.static(MEDIA_DIR, { maxAge: '365d', immutable: true }));
 app.use(express.static(path.join(ROOT, 'public')));
-app.get('/', (req, res) => res.redirect('/dashboard/'));
 // Clean privacy-policy URL (Play Console links to this).
 app.get('/privacy', (req, res) => res.sendFile(path.join(ROOT, 'public', 'privacy.html')));
 // The sideload APK moved with the rebrand; old Downloader links keep working.
@@ -289,31 +316,103 @@ app.post('/api/login', (req, res) => {
     return res.status(401).json({ error: 'Wrong password' });
   }
   loginAttempts.delete(req.ip); // successful logins don't count toward the lockout
-  res.json({ token: issueToken() });
+  res.json({ token: issueToken('legacy-admin') });
+});
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Create a vendor account. The first-ever signup (or the OWNER_EMAIL match)
+// claims the default venue with all its existing screens and media; every
+// later signup gets a fresh, empty workspace.
+app.post('/api/signup', (req, res) => {
+  if (loginLimited(req.ip)) return res.status(429).json({ error: 'Too many attempts — try again in 15 minutes' });
+  const { venue, name, email, password } = req.body || {};
+  const cleanEmail = String(email || '').trim().toLowerCase();
+  if (!EMAIL_RE.test(cleanEmail)) return res.status(400).json({ error: 'Enter a valid email address' });
+  if (typeof password !== 'string' || password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  }
+  if (store.userByEmail(cleanEmail)) return res.status(400).json({ error: 'That email already has an account — sign in instead' });
+  if (store.data.users.length >= 500) return res.status(429).json({ error: 'Signups are temporarily closed' });
+
+  const claimsDefault = store.data.users.length === 0 && (!OWNER_EMAIL || OWNER_EMAIL === cleanEmail);
+  let venueId;
+  if (claimsDefault) {
+    venueId = store.defaultVenueId();
+    const v = store.venue(venueId);
+    if (venue && String(venue).trim()) v.name = String(venue).trim().slice(0, 60);
+  } else {
+    const v = {
+      id: crypto.randomUUID(),
+      name: (String(venue || '').trim() || 'My Venue').slice(0, 60),
+      dayStarted: true,
+      customThemes: [],
+      createdAt: new Date().toISOString()
+    };
+    store.data.venues.push(v);
+    venueId = v.id;
+  }
+  const user = {
+    id: crypto.randomUUID(),
+    email: cleanEmail,
+    passHash: hashPassword(password),
+    name: String(name || '').trim().slice(0, 60),
+    venueId,
+    role: 'owner',
+    createdAt: new Date().toISOString()
+  };
+  store.data.users.push(user);
+  store.save();
+  loginAttempts.delete(req.ip);
+  res.json({ token: issueToken(user.id), venueName: store.venue(venueId).name });
+});
+
+app.post('/api/signin', (req, res) => {
+  if (loginLimited(req.ip)) return res.status(429).json({ error: 'Too many attempts — try again in 15 minutes' });
+  const { email, password } = req.body || {};
+  const user = store.userByEmail(email);
+  if (!user || typeof password !== 'string' || !verifyPassword(password, user.passHash)) {
+    return res.status(401).json({ error: 'Wrong email or password' });
+  }
+  loginAttempts.delete(req.ip);
+  res.json({ token: issueToken(user.id), venueName: store.venue(user.venueId)?.name || '' });
+});
+
+app.get('/api/me', requireAuth, (req, res) => {
+  const user = req.userId === 'legacy-admin' ? { email: null, name: 'Admin' } : store.user(req.userId);
+  res.json({ email: user?.email || null, name: user?.name || '',
+    venueName: store.venue(req.venueId)?.name || '' });
 });
 
 // ---- Player registration (no auth) ----
+function nextTvName(venueId) {
+  // Lowest unused number within the venue, so deleting "TV 7" and re-pairing
+  // never creates a duplicate name (booking rows target TVs by name).
+  const names = new Set(store.tvsOf(venueId).map(t => t.name));
+  let n = 1;
+  while (names.has(`TV ${n}`)) n++;
+  return `TV ${n}`;
+}
+
 app.post('/api/player/register', (req, res) => {
   const { existingId } = req.body || {};
   let tv = existingId ? store.tv(existingId) : null;
   if (!tv) {
-    if (store.data.tvs.length >= 50) {
-      return res.status(429).json({ error: 'TV limit reached — remove unused TVs in the dashboard' });
+    if (store.data.tvs.length >= 500) {
+      return res.status(429).json({ error: 'Screen limit reached' });
     }
-    // Lowest unused number, so deleting "TV 7" and re-pairing never creates a
-    // duplicate name (CSV rows target TVs by name).
-    const names = new Set(store.data.tvs.map(t => t.name));
-    let n = 1;
-    while (names.has(`TV ${n}`)) n++;
+    // Cloud mode: the screen starts unclaimed and shows a pairing code; an
+    // operator types that code in their dashboard to pull it into their
+    // venue. On a LAN (approval unset) it joins the default venue instantly.
+    const cloud = REQUIRE_TV_APPROVAL;
     tv = {
       id: crypto.randomUUID(),
-      name: `TV ${n}`,
+      venueId: cloud ? null : store.defaultVenueId(),
+      name: cloud ? 'New screen' : nextTvName(store.defaultVenueId()),
       createdAt: new Date().toISOString(),
       lastSeen: new Date().toISOString(),
       power: 'on',
-      // In cloud mode a new screen shows this code and waits until someone
-      // hits Approve in the dashboard; on a LAN it's approved instantly.
-      approved: !REQUIRE_TV_APPROVAL,
+      approved: !cloud,
       pairCode: String(100000 + crypto.randomInt(900000)),
       assignedMediaIds: [],
       playlistId: null,
@@ -327,12 +426,27 @@ app.post('/api/player/register', (req, res) => {
   res.json({ tvId: tv.id, name: tv.name });
 });
 
+// Claim an unpaired screen into the caller's venue by its on-screen code.
+app.post('/api/tvs/claim', requireAuth, (req, res) => {
+  const code = String(req.body?.code || '').replace(/\D/g, '');
+  if (code.length !== 6) return res.status(400).json({ error: 'Enter the 6-digit code shown on the TV' });
+  const tv = store.data.tvs.find(t => !t.venueId && t.pairCode === code);
+  if (!tv) return res.status(404).json({ error: 'No waiting screen has that code — check the TV and try again' });
+  tv.venueId = req.venueId;
+  tv.approved = true;
+  tv.name = nextTvName(req.venueId);
+  store.save();
+  pushTv(tv.id);
+  pushDashboards();
+  res.json({ ok: true, tv: { id: tv.id, name: tv.name } });
+});
+
 // ---- Dashboard API ----
-app.get('/api/state', requireAuth, (req, res) => res.json(dashboardSnapshot()));
+app.get('/api/state', requireAuth, (req, res) => res.json(dashboardSnapshot(req.venueId)));
 
 app.patch('/api/tvs/:id', requireAuth, (req, res) => {
   const tv = store.tv(req.params.id);
-  if (!tv) return res.status(404).json({ error: 'No such TV' });
+  if (!owned(req, tv)) return res.status(404).json({ error: 'No such TV' });
   const { name, fit } = req.body || {};
   if (typeof name === 'string' && name.trim()) tv.name = name.trim().slice(0, 60);
   if (fit === 'contain' || fit === 'cover') tv.fit = fit;
@@ -344,7 +458,7 @@ app.patch('/api/tvs/:id', requireAuth, (req, res) => {
 
 app.post('/api/tvs/:id/approve', requireAuth, (req, res) => {
   const tv = store.tv(req.params.id);
-  if (!tv) return res.status(404).json({ error: 'No such TV' });
+  if (!owned(req, tv)) return res.status(404).json({ error: 'No such TV' });
   tv.approved = true;
   store.save();
   pushTv(tv.id);
@@ -353,7 +467,7 @@ app.post('/api/tvs/:id/approve', requireAuth, (req, res) => {
 });
 
 app.delete('/api/tvs/:id', requireAuth, (req, res) => {
-  const i = store.data.tvs.findIndex(t => t.id === req.params.id);
+  const i = store.data.tvs.findIndex(t => t.id === req.params.id && t.venueId === req.venueId);
   if (i === -1) return res.status(404).json({ error: 'No such TV' });
   const [tv] = store.data.tvs.splice(i, 1);
   for (const ws of playerSockets.get(tv.id) || []) ws.close();
@@ -365,10 +479,10 @@ app.delete('/api/tvs/:id', requireAuth, (req, res) => {
 
 app.post('/api/tvs/:id/assign', requireAuth, (req, res) => {
   const tv = store.tv(req.params.id);
-  if (!tv) return res.status(404).json({ error: 'No such TV' });
+  if (!owned(req, tv)) return res.status(404).json({ error: 'No such TV' });
   const { mediaIds } = req.body || {};
   if (!Array.isArray(mediaIds)) return res.status(400).json({ error: 'mediaIds must be an array' });
-  tv.assignedMediaIds = mediaIds.filter(id => store.medium(id));
+  tv.assignedMediaIds = mediaIds.filter(id => owned(req, store.medium(id)));
   tv.playlistId = null; // a custom selection takes the TV off any named playlist
   store.save();
   pushTv(tv.id);
@@ -378,7 +492,7 @@ app.post('/api/tvs/:id/assign', requireAuth, (req, res) => {
 
 app.post('/api/tvs/:id/power', requireAuth, (req, res) => {
   const tv = store.tv(req.params.id);
-  if (!tv) return res.status(404).json({ error: 'No such TV' });
+  if (!owned(req, tv)) return res.status(404).json({ error: 'No such TV' });
   const { power } = req.body || {};
   if (power !== 'on' && power !== 'off') return res.status(400).json({ error: 'power must be "on" or "off"' });
   tv.power = power;
@@ -390,7 +504,7 @@ app.post('/api/tvs/:id/power', requireAuth, (req, res) => {
 
 app.post('/api/tvs/:id/test-birthday', requireAuth, (req, res) => {
   const tv = store.tv(req.params.id);
-  if (!tv) return res.status(404).json({ error: 'No such TV' });
+  if (!owned(req, tv)) return res.status(404).json({ error: 'No such TV' });
   const { name, durationMin, theme } = req.body || {};
   const dur = Math.min(Math.max(parseFloat(durationMin) || 1, 0.2), 240);
   tv.override = {
@@ -399,7 +513,7 @@ app.post('/api/tvs/:id/test-birthday', requireAuth, (req, res) => {
     message: null,
     mediaId: null,
     endsAt: new Date(Date.now() + dur * 60_000).toISOString(),
-    theme: resolveTheme(theme, store.data.settings.customThemes) || 'party',
+    theme: resolveTheme(theme, store.venue(req.venueId)?.customThemes || []) || 'party',
     restorePowerOff: tv.power === 'off'
   };
   tv.power = 'on';
@@ -411,7 +525,7 @@ app.post('/api/tvs/:id/test-birthday', requireAuth, (req, res) => {
 
 app.post('/api/tvs/:id/clear-override', requireAuth, (req, res) => {
   const tv = store.tv(req.params.id);
-  if (!tv) return res.status(404).json({ error: 'No such TV' });
+  if (!owned(req, tv)) return res.status(404).json({ error: 'No such TV' });
   if (tv.override) {
     if (tv.override.eventId) {
       const ev = store.event(tv.override.eventId);
@@ -454,7 +568,8 @@ app.post('/api/media', requireAuth, (req, res) => {
       ext,
       size: req.file.size,
       uploadedAt: new Date().toISOString(),
-      folderId: validFolderId(req.body.folderId)
+      venueId: req.venueId,
+      folderId: validFolderId(req.venueId, req.body.folderId)
     };
     store.data.media.push(m);
     store.save();
@@ -468,12 +583,12 @@ app.post('/api/folders', requireAuth, (req, res) => {
   const { id, name } = req.body || {};
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'Folder needs a name' });
   const clean = String(name).trim().slice(0, 40);
-  const clash = store.data.folders.find(f => f.id !== id && normalizeLabel(f.name) === normalizeLabel(clean));
+  const clash = store.foldersOf(req.venueId).find(f => f.id !== id && normalizeLabel(f.name) === normalizeLabel(clean));
   if (clash) return res.status(400).json({ error: `A folder named "${clash.name}" already exists` });
-  let f = id ? store.data.folders.find(x => x.id === id) : null;
+  let f = id ? store.data.folders.find(x => x.id === id && x.venueId === req.venueId) : null;
   if (!f) {
-    if (store.data.folders.length >= 50) return res.status(400).json({ error: 'Folder limit reached' });
-    f = { id: crypto.randomUUID(), name: clean };
+    if (store.foldersOf(req.venueId).length >= 50) return res.status(400).json({ error: 'Folder limit reached' });
+    f = { id: crypto.randomUUID(), venueId: req.venueId, name: clean };
     store.data.folders.push(f);
   } else {
     f.name = clean;
@@ -484,7 +599,7 @@ app.post('/api/folders', requireAuth, (req, res) => {
 });
 
 app.delete('/api/folders/:id', requireAuth, (req, res) => {
-  const i = store.data.folders.findIndex(f => f.id === req.params.id);
+  const i = store.data.folders.findIndex(f => f.id === req.params.id && f.venueId === req.venueId);
   if (i === -1) return res.status(404).json({ error: 'No such folder' });
   store.data.folders.splice(i, 1);
   // The folder's media moves back to the library root — nothing is deleted.
@@ -511,17 +626,19 @@ app.post('/api/slides', requireAuth, (req, res) => {
     textColor: okColor(slide.textColor) ? slide.textColor : '#ffffff'
   };
   let m = id ? store.medium(id) : null;
+  if (id && !owned(req, m)) return res.status(404).json({ error: 'No such media' });
   if (m && !m.slide) return res.status(400).json({ error: 'That media is a file, not a slide' });
   if (!m) {
     m = {
       id: crypto.randomUUID(),
+      venueId: req.venueId,
       label: '', originalName: null, ext: '', size: 0,
       uploadedAt: new Date().toISOString()
     };
     store.data.media.push(m);
   }
   m.slide = clean;
-  if (folderId !== undefined) m.folderId = validFolderId(folderId);
+  if (folderId !== undefined) m.folderId = validFolderId(req.venueId, folderId);
   if (typeof label === 'string' && label.trim()) m.label = label.trim().slice(0, 80);
   if (!m.label) m.label = clean.headline.slice(0, 40);
   const d = parseFloat(durationSec);
@@ -541,7 +658,7 @@ const num = (v, lo, hi, dflt) => {
 };
 
 // Validate and normalize a composition. Returns { comp } or { error }.
-function cleanComp(raw) {
+function cleanComp(raw, venueId) {
   if (!raw || typeof raw !== 'object') return { error: 'Missing design data' };
   const bgColors = Array.isArray(raw.bg?.colors) ? raw.bg.colors.filter(okHex).slice(0, 2) : [];
   if (bgColors.length === 0) return { error: 'Pick a background color' };
@@ -568,7 +685,7 @@ function cleanComp(raw) {
         boxBg: okHex(e.boxBg) ? e.boxBg : null });
     } else if (e.type === 'image' || e.type === 'video') {
       const m = store.medium(e.mediaId);
-      if (!m) return { error: 'A placed photo/video no longer exists in the library' };
+      if (!m || m.venueId !== venueId) return { error: 'A placed photo/video no longer exists in the library' };
       if (mediaType(m) !== e.type) return { error: `"${m.label}" is not a ${e.type === 'image' ? 'photo' : 'video'}` };
       if (e.type === 'video' && ++videos > 1) return { error: 'One video per design — TV boxes can only decode one smoothly' };
       elements.push({ ...base, mediaId: e.mediaId,
@@ -586,16 +703,18 @@ function cleanComp(raw) {
 
 app.post('/api/comps', requireAuth, (req, res) => {
   const { id, label, durationSec, folderId, comp } = req.body || {};
-  const cleaned = cleanComp(comp);
+  const cleaned = cleanComp(comp, req.venueId);
   if (cleaned.error) return res.status(400).json({ error: cleaned.error });
   let m = id ? store.medium(id) : null;
+  if (id && !owned(req, m)) return res.status(404).json({ error: 'No such media' });
   if (m && !m.comp) return res.status(400).json({ error: 'That media is not a layout design' });
   if (!m) {
     m = {
       id: crypto.randomUUID(),
+      venueId: req.venueId,
       label: '', originalName: null, ext: '', size: 0,
       uploadedAt: new Date().toISOString(),
-      folderId: validFolderId(folderId)
+      folderId: validFolderId(req.venueId, folderId)
     };
     store.data.media.push(m);
   }
@@ -614,7 +733,7 @@ app.post('/api/comps', requireAuth, (req, res) => {
 // it stays in every playlist and assignment, and screens refresh instantly.
 app.post('/api/media/:id/replace', requireAuth, (req, res) => {
   const m = store.medium(req.params.id);
-  if (!m) return res.status(404).json({ error: 'No such media' });
+  if (!owned(req, m)) return res.status(404).json({ error: 'No such media' });
   if (m.slide || m.comp) return res.status(400).json({ error: 'Slides and designs are edited in the dashboard, not replaced' });
   upload.single('file')(req, res, err => {
     if (err) return res.status(400).json({ error: err.message });
@@ -635,10 +754,10 @@ app.post('/api/media/:id/replace', requireAuth, (req, res) => {
 
 app.patch('/api/media/:id', requireAuth, (req, res) => {
   const m = store.medium(req.params.id);
-  if (!m) return res.status(404).json({ error: 'No such media' });
+  if (!owned(req, m)) return res.status(404).json({ error: 'No such media' });
   const { label, durationSec, folderId } = req.body || {};
   if (typeof label === 'string' && label.trim()) m.label = label.trim().slice(0, 80);
-  if (folderId !== undefined) m.folderId = validFolderId(folderId);
+  if (folderId !== undefined) m.folderId = validFolderId(req.venueId, folderId);
   if (durationSec !== undefined) {
     const d = parseFloat(durationSec);
     if (Number.isFinite(d)) m.durationSec = Math.min(Math.max(d, 1), 3600);
@@ -650,7 +769,7 @@ app.patch('/api/media/:id', requireAuth, (req, res) => {
 });
 
 app.delete('/api/media/:id', requireAuth, (req, res) => {
-  const i = store.data.media.findIndex(m => m.id === req.params.id);
+  const i = store.data.media.findIndex(m => m.id === req.params.id && m.venueId === req.venueId);
   if (i === -1) return res.status(404).json({ error: 'No such media' });
   const [m] = store.data.media.splice(i, 1);
   const touched = new Set();
@@ -693,8 +812,8 @@ app.delete('/api/media/:id', requireAuth, (req, res) => {
 app.post('/api/assign-all', requireAuth, (req, res) => {
   const { mediaIds } = req.body || {};
   if (!Array.isArray(mediaIds)) return res.status(400).json({ error: 'mediaIds must be an array' });
-  const clean = mediaIds.filter(id => store.medium(id));
-  for (const tv of store.data.tvs) { tv.assignedMediaIds = [...clean]; tv.playlistId = null; }
+  const clean = mediaIds.filter(id => owned(req, store.medium(id)));
+  for (const tv of store.tvsOf(req.venueId)) { tv.assignedMediaIds = [...clean]; tv.playlistId = null; }
   store.save();
   pushAllTvs();
   pushDashboards();
@@ -702,9 +821,9 @@ app.post('/api/assign-all', requireAuth, (req, res) => {
 });
 
 // ---- Playlists ----
-function cleanPlaylistItems(items) {
+function cleanPlaylistItems(req, items) {
   return (Array.isArray(items) ? items : [])
-    .filter(it => it && store.medium(it.mediaId))
+    .filter(it => it && owned(req, store.medium(it.mediaId)))
     .slice(0, 100)
     .map(it => {
       const d = parseFloat(it.durationSec);
@@ -722,26 +841,27 @@ app.post('/api/playlists', requireAuth, (req, res) => {
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'Playlist needs a name' });
   // An explicit id that doesn't exist is a stale edit, not a create — forking
   // a new playlist here would silently duplicate content.
-  if (id && !store.playlist(id)) return res.status(404).json({ error: 'No such playlist — it may have been deleted' });
+  if (id && !owned(req, store.playlist(id))) return res.status(404).json({ error: 'No such playlist — it may have been deleted' });
   const pl = {
     id: id || crypto.randomUUID(),
+    venueId: req.venueId,
     name: String(name).trim().slice(0, 60),
     transition: transition === 'fade' ? 'fade' : 'none',
-    items: cleanPlaylistItems(items)
+    items: cleanPlaylistItems(req, items)
   };
   const i = store.data.playlists.findIndex(p => p.id === pl.id);
   if (i === -1) store.data.playlists.push(pl); else store.data.playlists[i] = pl;
   store.save();
-  for (const tv of store.data.tvs) if (tv.playlistId === pl.id) pushTv(tv.id);
+  for (const tv of store.tvsOf(req.venueId)) if (tv.playlistId === pl.id) pushTv(tv.id);
   pushDashboards();
   res.json({ ok: true, playlist: pl });
 });
 
 app.delete('/api/playlists/:id', requireAuth, (req, res) => {
-  const i = store.data.playlists.findIndex(p => p.id === req.params.id);
+  const i = store.data.playlists.findIndex(p => p.id === req.params.id && p.venueId === req.venueId);
   if (i === -1) return res.status(404).json({ error: 'No such playlist' });
   store.data.playlists.splice(i, 1);
-  for (const tv of store.data.tvs) {
+  for (const tv of store.tvsOf(req.venueId)) {
     if (tv.playlistId === req.params.id) {
       tv.playlistId = null; // falls back to the TV's custom selection
       pushTv(tv.id);
@@ -753,8 +873,8 @@ app.delete('/api/playlists/:id', requireAuth, (req, res) => {
 });
 
 app.post('/api/playlists/:id/assign-all', requireAuth, (req, res) => {
-  if (!store.playlist(req.params.id)) return res.status(404).json({ error: 'No such playlist' });
-  for (const tv of store.data.tvs) tv.playlistId = req.params.id;
+  if (!owned(req, store.playlist(req.params.id))) return res.status(404).json({ error: 'No such playlist' });
+  for (const tv of store.tvsOf(req.venueId)) tv.playlistId = req.params.id;
   store.save();
   pushAllTvs();
   pushDashboards();
@@ -764,9 +884,9 @@ app.post('/api/playlists/:id/assign-all', requireAuth, (req, res) => {
 // Point a TV at a playlist (playlistId: null reverts to its custom selection).
 app.post('/api/tvs/:id/playlist', requireAuth, (req, res) => {
   const tv = store.tv(req.params.id);
-  if (!tv) return res.status(404).json({ error: 'No such TV' });
+  if (!owned(req, tv)) return res.status(404).json({ error: 'No such TV' });
   const { playlistId } = req.body || {};
-  if (playlistId !== null && !store.playlist(playlistId)) {
+  if (playlistId !== null && !owned(req, store.playlist(playlistId))) {
     return res.status(400).json({ error: 'No such playlist' });
   }
   tv.playlistId = playlistId;
@@ -787,7 +907,7 @@ app.post('/api/themes', requireAuth, (req, res) => {
   if (normalizeTheme(cleanName) !== null && normalizeLabel(cleanName) !== '') {
     return res.status(400).json({ error: `"${cleanName}" is a built-in theme name — pick another` });
   }
-  const themes = store.data.settings.customThemes;
+  const themes = store.venue(req.venueId).customThemes;
   const clash = themes.find(c => c.id !== id && normalizeLabel(c.name) === normalizeLabel(cleanName));
   if (clash) return res.status(400).json({ error: `A theme named "${clash.name}" already exists` });
   if (!Array.isArray(bg) || bg.length < 2 || !bg.every(isColor)) {
@@ -810,7 +930,7 @@ app.post('/api/themes', requireAuth, (req, res) => {
   if (i === -1) themes.push(theme); else themes[i] = theme;
   store.save();
   // TVs currently showing this theme pick up the edit immediately.
-  for (const tv of store.data.tvs) {
+  for (const tv of store.tvsOf(req.venueId)) {
     if (tv.override && tv.override.theme === `custom:${theme.id}`) pushTv(tv.id);
   }
   pushDashboards();
@@ -818,13 +938,13 @@ app.post('/api/themes', requireAuth, (req, res) => {
 });
 
 app.delete('/api/themes/:id', requireAuth, (req, res) => {
-  const themes = store.data.settings.customThemes;
+  const themes = store.venue(req.venueId).customThemes;
   const i = themes.findIndex(c => c.id === req.params.id);
   if (i === -1) return res.status(404).json({ error: 'No such theme' });
   const key = `custom:${themes[i].id}`;
   themes.splice(i, 1);
-  for (const ev of store.data.events) if (ev.theme === key) ev.theme = 'party';
-  for (const tv of store.data.tvs) {
+  for (const ev of store.eventsOf(req.venueId)) if (ev.theme === key) ev.theme = 'party';
+  for (const tv of store.tvsOf(req.venueId)) {
     if (tv.override && tv.override.theme === key) { tv.override.theme = 'party'; pushTv(tv.id); }
   }
   store.save();
@@ -836,8 +956,8 @@ app.post('/api/settings', requireAuth, (req, res) => {
   const { venueName: newVenueName } = req.body || {};
   if (newVenueName !== undefined) {
     if (!String(newVenueName).trim()) return res.status(400).json({ error: 'Venue name cannot be empty' });
-    store.data.settings.venueName = String(newVenueName).trim().slice(0, 60);
-    pushAllTvs(); // guest-facing subline changes immediately
+    store.venue(req.venueId).name = String(newVenueName).trim().slice(0, 60);
+    for (const tv of store.tvsOf(req.venueId)) pushTv(tv.id); // subline updates immediately
   }
   store.save();
   pushDashboards();
@@ -851,8 +971,9 @@ app.post('/api/events/csv', requireAuth, (req, res) => {
   csvUpload.single('file')(req, res, err => {
     if (err) return res.status(400).json({ error: err.message });
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-    const { events, errors } = parseEventsCsv(req.file.buffer.toString('utf8'), store.data.tvs, store.data.media,
-      store.data.settings.customThemes);
+    const { events, errors } = parseEventsCsv(req.file.buffer.toString('utf8'),
+      store.tvsOf(req.venueId), store.mediaOf(req.venueId),
+      store.venue(req.venueId).customThemes);
     if (events.length === 0) {
       // Nothing valid in the file (wrong file, bad headers): never wipe the
       // existing schedule on a failed import.
@@ -868,10 +989,12 @@ app.post('/api/events/csv', requireAuth, (req, res) => {
     // events are history and always stay.
     const newDates = new Set(events.map(e => new Date(e.startsAt).toDateString()));
     store.data.events = store.data.events.filter(e =>
-      e.source !== 'csv' || e.status !== 'scheduled' || !newDates.has(new Date(e.startsAt).toDateString()));
+      e.venueId !== req.venueId || e.source !== 'csv' || e.status !== 'scheduled' ||
+      !newDates.has(new Date(e.startsAt).toDateString()));
     for (const e of events) {
       store.data.events.push({
         id: crypto.randomUUID(),
+        venueId: req.venueId,
         ...e,
         status: 'scheduled',
         source: 'csv'
@@ -887,7 +1010,7 @@ app.post('/api/events/csv', requireAuth, (req, res) => {
 app.post('/api/events', requireAuth, (req, res) => {
   const { tvId, name, age, message, startsAt, durationMin, mediaLabel, theme } = req.body || {};
   const tv = store.tv(tvId);
-  if (!tv) return res.status(400).json({ error: 'Pick a TV' });
+  if (!owned(req, tv)) return res.status(400).json({ error: 'Pick a TV' });
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'Name is required' });
   const start = Date.parse(startsAt);
   if (!Number.isFinite(start)) return res.status(400).json({ error: 'Bad start time' });
@@ -900,15 +1023,16 @@ app.post('/api/events', requireAuth, (req, res) => {
   }
   let mediaId = null;
   if (mediaLabel) {
-    const m = matchMedia(store.data.media, mediaLabel);
+    const m = matchMedia(store.mediaOf(req.venueId), mediaLabel);
     if (m) mediaId = m.id;
   }
   // Same contract as PATCH: an explicitly given unknown theme is an error,
   // not a silent fallback to party.
-  const cleanTheme = resolveTheme(theme, store.data.settings.customThemes);
+  const cleanTheme = resolveTheme(theme, store.venue(req.venueId).customThemes);
   if (theme && !cleanTheme) return res.status(400).json({ error: 'Unknown theme' });
   const ev = {
     id: crypto.randomUUID(),
+    venueId: req.venueId,
     tvId,
     name: String(name).trim().slice(0, 60),
     age: cleanAge,
@@ -932,7 +1056,7 @@ app.post('/api/events', requireAuth, (req, res) => {
 // parse can still be the parent's name, so the operator has the final word).
 app.patch('/api/events/:id', requireAuth, (req, res) => {
   const ev = store.event(req.params.id);
-  if (!ev) return res.status(404).json({ error: 'No such event' });
+  if (!owned(req, ev)) return res.status(404).json({ error: 'No such event' });
   const { name, age, message, theme, tvId, startsAt, durationMin } = req.body || {};
   if (name !== undefined) {
     if (!String(name).trim()) return res.status(400).json({ error: 'Name cannot be empty' });
@@ -948,12 +1072,12 @@ app.patch('/api/events/:id', requireAuth, (req, res) => {
   }
   if (message !== undefined) ev.message = message ? String(message).slice(0, 120) : null;
   if (theme !== undefined) {
-    const t = resolveTheme(theme, store.data.settings.customThemes);
+    const t = resolveTheme(theme, store.venue(req.venueId).customThemes);
     if (!t) return res.status(400).json({ error: 'Unknown theme' });
     ev.theme = t;
   }
   if (tvId !== undefined) {
-    if (!store.tv(tvId)) return res.status(400).json({ error: 'No such TV' });
+    if (!owned(req, store.tv(tvId))) return res.status(400).json({ error: 'No such TV' });
     ev.tvId = tvId;
   }
   if (startsAt !== undefined) {
@@ -969,7 +1093,7 @@ app.patch('/api/events/:id', requireAuth, (req, res) => {
   // If this party is on screen right now, the edit reaches the screen live —
   // including a moved room and a changed end time.
   if (ev.status === 'active') {
-    const holder = store.data.tvs.find(t => t.override && t.override.eventId === ev.id);
+    const holder = store.tvsOf(req.venueId).find(t => t.override && t.override.eventId === ev.id);
     const endMs = Date.parse(ev.startsAt) + ev.durationMin * 60_000;
     if (Date.now() >= endMs) {
       // The edited window is already over: finish the party cleanly instead
@@ -1011,7 +1135,7 @@ app.patch('/api/events/:id', requireAuth, (req, res) => {
 });
 
 app.delete('/api/events/:id', requireAuth, (req, res) => {
-  const i = store.data.events.findIndex(e => e.id === req.params.id);
+  const i = store.data.events.findIndex(e => e.id === req.params.id && e.venueId === req.venueId);
   if (i === -1) return res.status(404).json({ error: 'No such event' });
   const [ev] = store.data.events.splice(i, 1);
   // Clear the takeover from WHICHEVER TV holds it — after a mid-takeover
@@ -1030,7 +1154,7 @@ app.delete('/api/events/:id', requireAuth, (req, res) => {
 
 app.post('/api/events/:id/start-now', requireAuth, (req, res) => {
   const ev = store.event(req.params.id);
-  if (!ev) return res.status(404).json({ error: 'No such event' });
+  if (!owned(req, ev)) return res.status(404).json({ error: 'No such event' });
   ev.startsAt = new Date().toISOString();
   ev.status = 'scheduled';
   store.save();
@@ -1040,7 +1164,7 @@ app.post('/api/events/:id/start-now', requireAuth, (req, res) => {
 });
 
 app.post('/api/events/clear-done', requireAuth, (req, res) => {
-  store.data.events = store.data.events.filter(e => e.status !== 'done');
+  store.data.events = store.data.events.filter(e => e.venueId !== req.venueId || e.status !== 'done');
   store.save();
   pushDashboards();
   res.json({ ok: true });
@@ -1051,7 +1175,7 @@ app.get('/api/roller/status', requireAuth, (req, res) => res.json(rollerStatus()
 
 app.post('/api/roller/sync', requireAuth, async (req, res) => {
   try {
-    const result = await rollerSync(store, { matchTv, days: 7 }); // this week's parties, not just today's
+    const result = await rollerSync(store, { matchTv, days: 7, venueId: req.venueId }); // this week's parties
     if (result.imported || result.updated) pushDashboards();
     res.json({ ok: true, ...result });
   } catch (e) {
@@ -1096,7 +1220,7 @@ app.post('/api/test-bookings/csv', requireAuth, (req, res) => {
       const time = parseTime(get(iTime));
       if (!date) { errors.push({ line, error: `Bad date "${get(iDate)}"` }); continue; }
       if (!time) { errors.push({ line, error: `Bad time "${get(iTime)}"` }); continue; }
-      const tv = matchTv(store.data.tvs, get(iRoom));
+      const tv = matchTv(store.tvsOf(req.venueId), get(iRoom));
       if (!tv) { errors.push({ line, error: `No TV matches room "${get(iRoom)}"` }); continue; }
       const byline = get(iByline);
       if (!byline) { errors.push({ line, error: 'Empty byline' }); continue; }
@@ -1105,6 +1229,7 @@ app.post('/api/test-bookings/csv', requireAuth, (req, res) => {
       if (!Number.isFinite(durationMin) || durationMin <= 0) durationMin = 5;
       imported.push({
         id: crypto.randomUUID(),
+        venueId: req.venueId,
         tvId: tv.id,
         // The parse pre-fills; the Parties page keeps every field editable.
         name: parsed.name || 'Birthday Star',
@@ -1125,7 +1250,8 @@ app.post('/api/test-bookings/csv', requireAuth, (req, res) => {
       // rows only — manual and ROLLER parties are never touched by this path.
       const newDates = new Set(imported.map(e => new Date(e.startsAt).toDateString()));
       store.data.events = store.data.events.filter(e =>
-        e.source !== 'test-csv' || e.status !== 'scheduled' || !newDates.has(new Date(e.startsAt).toDateString()));
+        e.venueId !== req.venueId || e.source !== 'test-csv' || e.status !== 'scheduled' ||
+        !newDates.has(new Date(e.startsAt).toDateString()));
       store.data.events.push(...imported);
       store.data.events.sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt));
       store.save();
@@ -1146,8 +1272,8 @@ app.post('/api/test-bookings/csv', requireAuth, (req, res) => {
 
 // ---- Day open / close ----
 app.post('/api/day/start', requireAuth, (req, res) => {
-  store.data.settings.dayStarted = true;
-  for (const tv of store.data.tvs) tv.power = 'on';
+  store.venue(req.venueId).dayStarted = true;
+  for (const tv of store.tvsOf(req.venueId)) tv.power = 'on';
   store.save();
   pushAllTvs();
   pushDashboards();
@@ -1155,8 +1281,8 @@ app.post('/api/day/start', requireAuth, (req, res) => {
 });
 
 app.post('/api/day/end', requireAuth, (req, res) => {
-  store.data.settings.dayStarted = false;
-  for (const tv of store.data.tvs) {
+  store.venue(req.venueId).dayStarted = false;
+  for (const tv of store.tvsOf(req.venueId)) {
     tv.power = 'off';
     if (tv.override) {
       if (tv.override.eventId) {
@@ -1209,10 +1335,12 @@ wss.on('connection', ws => {
       ws.send(JSON.stringify(playerState(tv)));
       pushDashboards();
     } else if (msg.type === 'hello' && msg.role === 'dashboard') {
-      if (!validToken(msg.token)) { ws.close(4001, 'bad token'); return; }
+      const session = sessionFor(msg.token);
+      if (!session) { ws.close(4001, 'bad token'); return; }
       ws.role = 'dashboard';
+      ws.venueId = session.venueId;
       dashboardSockets.add(ws);
-      ws.send(JSON.stringify(dashboardSnapshot()));
+      ws.send(JSON.stringify(dashboardSnapshot(session.venueId)));
     } else if (msg.type === 'status' && ws.role === 'player' && ws.tvId) {
       const tv = store.tv(ws.tvId);
       if (!tv) return;

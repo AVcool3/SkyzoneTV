@@ -65,6 +65,12 @@ const run = async () => {
   const apk = await fetch(BASE + '/parkcast-player.apk', { method: 'HEAD' });
   check('android player apk is served', apk.status === 200);
 
+  // marketing landing page at the root, with signup/signin entry points
+  const landing = await fetch(BASE + '/');
+  const landingHtml = await landing.text();
+  check('landing page served at root', landing.status === 200 && /Sign up/.test(landingHtml));
+  check('landing page has contact section', /Deployment support/.test(landingHtml));
+
   // player registration
   const reg = await api(null, 'POST', '/api/player/register', {});
   check('player registers', reg.status === 200 && reg.data.tvId);
@@ -407,6 +413,73 @@ const run = async () => {
   await api(token, 'POST', '/api/day/start');
   state = (await api(token, 'GET', '/api/state')).data;
   check('day start restores all', state.tvs.every(t => t.power === 'on'));
+
+  // ---- multi-tenant vendors: signup, signin, workspace isolation ----
+  // The first-ever signup claims the default venue (all existing screens and
+  // media). On a fresh test server that's this "owner" account; on a server
+  // where someone already signed up, it just gets an empty workspace instead.
+  const ownEmail = 'smoke-owner@test.dev';
+  const ownPass = 'smoke-owner-pw1';
+  let signOwn = await api(null, 'POST', '/api/signup', { venue: 'Smoke HQ', email: ownEmail, password: ownPass });
+  if (signOwn.status === 400) {
+    signOwn = await api(null, 'POST', '/api/signin', { email: ownEmail, password: ownPass });
+  }
+  check('owner signup/signin works', signOwn.status === 200 && !!signOwn.data.token);
+  const stateOwn = (await api(signOwn.data.token, 'GET', '/api/state')).data;
+  check('first signup claims default venue (or gets clean workspace on a used server)',
+    stateOwn.tvs.some(t => t.id === tvId) || stateOwn.tvs.length === 0);
+
+  // Every signup after the first gets a fresh, isolated venue.
+  const vbEmail = 'smoke-vendor-b@test.dev';
+  const vbPass = 'smoke-pass-123';
+  let signB = await api(null, 'POST', '/api/signup', {
+    venue: 'Smoke Venue B', name: 'Smokey', email: vbEmail, password: vbPass
+  });
+  if (signB.status === 400) {
+    // account left over from a previous run against a live server — sign in
+    signB = await api(null, 'POST', '/api/signin', { email: vbEmail, password: vbPass });
+    check('vendor account reachable (signin after prior signup)', signB.status === 200 && !!signB.data.token);
+  } else {
+    check('vendor signup works', signB.status === 200 && !!signB.data.token);
+    check('signup returns venue name', signB.data.venueName === 'Smoke Venue B');
+  }
+  const tokenB = signB.data.token;
+
+  const dupSignup = await api(null, 'POST', '/api/signup', { venue: 'Other', email: vbEmail, password: vbPass });
+  check('duplicate email rejected', dupSignup.status === 400);
+  const shortPw = await api(null, 'POST', '/api/signup', { venue: 'X', email: 'smoke-short@test.dev', password: 'short' });
+  check('short password rejected', shortPw.status === 400);
+  const badEmail = await api(null, 'POST', '/api/signup', { venue: 'X', email: 'not-an-email', password: 'longenough1' });
+  check('invalid email rejected', badEmail.status === 400);
+  const badSignin = await api(null, 'POST', '/api/signin', { email: vbEmail, password: 'wrong-pass-xyz' });
+  check('wrong vendor password rejected', badSignin.status === 401);
+  const signin2 = await api(null, 'POST', '/api/signin', { email: vbEmail, password: vbPass });
+  check('vendor signin round-trip works', signin2.status === 200 && !!signin2.data.token);
+  const meB = await api(tokenB, 'GET', '/api/me');
+  check('me reports vendor email + venue', meB.data.email === vbEmail && meB.data.venueName === 'Smoke Venue B');
+
+  // vendor B's workspace is empty and cannot see or touch venue A's things
+  const stateB = (await api(tokenB, 'GET', '/api/state')).data;
+  check('vendor workspace is isolated (no foreign tvs/media/events)',
+    stateB.tvs.length === 0 && stateB.media.length === 0 && stateB.events.length === 0);
+  check('vendor sees own venue name', stateB.settings.venueName === 'Smoke Venue B');
+  const crossTv = await api(tokenB, 'PATCH', `/api/tvs/${tvId}`, { name: 'Hijacked' });
+  check('cross-venue tv access blocked', crossTv.status === 404);
+  const crossMedia = await api(tokenB, 'DELETE', `/api/media/${mediaId}`);
+  check('cross-venue media access blocked', crossMedia.status === 404);
+  const crossAssign = await api(tokenB, 'POST', `/api/tvs/${tvId}/assign`, { mediaIds: [] });
+  check('cross-venue assign blocked', crossAssign.status === 404);
+
+  // and vendor B's own objects never leak into venue A
+  const folderB = await api(tokenB, 'POST', '/api/folders', { name: 'Smoke B Folder' });
+  check('vendor can create in own workspace', folderB.status === 200);
+  state = (await api(token, 'GET', '/api/state')).data;
+  check('vendor objects invisible to other venues', !state.folders.some(f => f.name === 'Smoke B Folder'));
+  await api(tokenB, 'DELETE', `/api/folders/${folderB.data.folder.id}`);
+
+  // legacy admin still lands in the default venue with its data intact
+  const meA = await api(token, 'GET', '/api/me');
+  check('legacy admin maps to default venue', meA.status === 200 && meA.data.venueName === state.settings.venueName);
 
   // cleanup: delete media + tvs created by this test
   await api(token, 'DELETE', `/api/media/${mediaId}`);
