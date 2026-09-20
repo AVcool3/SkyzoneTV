@@ -532,6 +532,69 @@ const run = async () => {
   check('cut member cannot sign back in',
     (await api(null, 'POST', '/api/signin', { email: 'smoke-staff@test.dev', password: 'new-staff-pass1' })).status === 401);
 
+  // ---- staff can run the day, but destructive actions are owner-only ----
+  // A desk account in the DEFAULT venue, where this suite's screens and media
+  // live, so the restrictions are tested against real objects.
+  const adminTeam = await api(token, 'GET', '/api/team');
+  for (const m of adminTeam.data.members || []) {
+    if (m.email === 'smoke-desk@test.dev') await api(token, 'DELETE', `/api/team/${m.id}`);
+  }
+  const deskAdd = await api(token, 'POST', '/api/team', {
+    name: 'Desk', email: 'smoke-desk@test.dev', password: 'desk-pass-99', role: 'staff'
+  });
+  check('legacy admin can add staff to default venue', deskAdd.status === 200);
+  const deskIn = await api(null, 'POST', '/api/signin', { email: 'smoke-desk@test.dev', password: 'desk-pass-99' });
+  const tokenD = deskIn.data.token;
+
+  // staff CAN run the operational day
+  check('staff can power a screen',
+    (await api(tokenD, 'POST', `/api/tvs/${tvId}/power`, { power: 'on' })).status === 200);
+  check('staff can start a takeover',
+    (await api(tokenD, 'POST', `/api/tvs/${tvId}/test-birthday`, { name: 'DeskKid', durationMin: 1 })).status === 200);
+  check('staff can stop a takeover',
+    (await api(tokenD, 'POST', `/api/tvs/${tvId}/clear-override`)).status === 200);
+  check('staff can assign media',
+    (await api(tokenD, 'POST', `/api/tvs/${tvId}/assign`, { mediaIds: [mediaId] })).status === 200);
+  check('staff can rename a screen',
+    (await api(tokenD, 'PATCH', `/api/tvs/${tvId}`, { name: 'Smoke Room 1' })).status === 200);
+
+  // staff CANNOT destroy or replace
+  check('staff cannot delete a screen', (await api(tokenD, 'DELETE', `/api/tvs/${tvId}`)).status === 403);
+  check('staff cannot delete media', (await api(tokenD, 'DELETE', `/api/media/${mediaId}`)).status === 403);
+  const repFormD = new FormData();
+  repFormD.append('file', new Blob([new Uint8Array(100)], { type: 'video/mp4' }), 'smoke-x.mp4');
+  const repD = await fetch(BASE + `/api/media/${mediaId}/replace`, {
+    method: 'POST', headers: { Authorization: 'Bearer ' + tokenD }, body: repFormD
+  });
+  check('staff cannot replace a file', repD.status === 403);
+
+  const guardPl = await api(token, 'POST', '/api/playlists', { name: 'Smoke Guard', items: [{ mediaId }] });
+  const guardFo = await api(token, 'POST', '/api/folders', { name: 'Smoke Guard' });
+  const guardTh = await api(token, 'POST', '/api/themes', {
+    name: 'Smoke Guard', bg: ['#101010', '#202020'], headline: { fill: '#ffffff', stroke: '#000000' }
+  });
+  check('staff cannot delete a playlist',
+    (await api(tokenD, 'DELETE', `/api/playlists/${guardPl.data.playlist.id}`)).status === 403);
+  check('staff cannot delete a folder',
+    (await api(tokenD, 'DELETE', `/api/folders/${guardFo.data.folder.id}`)).status === 403);
+  check('staff cannot delete a theme',
+    (await api(tokenD, 'DELETE', `/api/themes/${guardTh.data.theme.id}`)).status === 403);
+  check('owner still deletes fine',
+    (await api(token, 'DELETE', `/api/playlists/${guardPl.data.playlist.id}`)).status === 200 &&
+    (await api(token, 'DELETE', `/api/folders/${guardFo.data.folder.id}`)).status === 200 &&
+    (await api(token, 'DELETE', `/api/themes/${guardTh.data.theme.id}`)).status === 200);
+
+  // parties stay fully operational for staff, including deleting one
+  const deskEv = await api(tokenD, 'POST', '/api/events', {
+    tvId, name: 'DeskParty', startsAt: '2099-06-01T10:00:00.000Z', durationMin: 5
+  });
+  check('staff can add a party', deskEv.status === 200);
+  if (deskEv.data.event?.id) {
+    check('staff can delete a party',
+      (await api(tokenD, 'DELETE', `/api/events/${deskEv.data.event.id}`)).status === 200);
+  }
+  await api(token, 'DELETE', `/api/team/${deskAdd.data.member.id}`);
+
   // cleanup: delete media + tvs created by this test
   await api(token, 'DELETE', `/api/media/${mediaId}`);
   state = (await api(token, 'GET', '/api/state')).data;

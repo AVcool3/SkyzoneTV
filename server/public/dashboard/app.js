@@ -7,6 +7,9 @@
   if (token) { try { localStorage.setItem('parkcast.token', token); } catch {} }
   let state = null;   // latest server snapshot
   let me = null;      // who is signed in: { email, name, role, venueName }
+  // Staff run the day; deleting and replacing things is owner work. Until the
+  // role is known we render as owner — the server enforces it regardless.
+  const isOwner = () => !me || me.role !== 'staff';
   let ws = null;
   let wsDelay = 1000;
 
@@ -120,6 +123,7 @@
     // The Team page (owner portal) only exists for owners.
     try { me = await api('/api/me'); } catch { me = null; }
     $('teamTab').classList.toggle('hidden', !(me && me.role === 'owner'));
+    render(); // re-render now that the role is known (staff lose delete controls)
     connectWs();
     refreshRollerCard();
   }
@@ -268,12 +272,13 @@
           <div class="tv-now">Pairing code on its screen: <strong>${esc(tv.pairCode || '?')}</strong></div>
           <div class="tv-actions">
             <button class="btn tiny primary" data-act="approve">✓ Approve</button>
-            <button class="btn tiny danger" data-act="reject">✕ Reject</button>
+            ${isOwner() ? '<button class="btn tiny danger" data-act="reject">✕ Reject</button>' : ''}
           </div>`;
         pend.querySelector('[data-act="approve"]').addEventListener('click', () =>
           api(`/api/tvs/${tv.id}/approve`, { method: 'POST' })
             .then(() => toast('Screen approved — name it and give it content')).catch(e => toast(e.message, true)));
-        pend.querySelector('[data-act="reject"]').addEventListener('click', () =>
+        const rejectBtn = pend.querySelector('[data-act="reject"]');
+        if (rejectBtn) rejectBtn.addEventListener('click', () =>
           api(`/api/tvs/${tv.id}`, { method: 'DELETE' }).then(() => toast('Screen rejected')).catch(e => toast(e.message, true)));
         grid.appendChild(pend);
         continue;
@@ -289,7 +294,7 @@
           <input class="tv-name" value="${esc(tv.name)}" title="Click to rename">
           <div class="tv-head-actions">
             <button class="btn tiny" data-act="power">${tv.power === 'on' ? 'Screen off' : 'Screen on'}</button>
-            <button class="btn tiny danger" data-act="forget" title="Forget this TV">✕</button>
+            ${isOwner() ? '<button class="btn tiny danger" data-act="forget" title="Forget this TV">✕</button>' : ''}
           </div>
         </div>
         <div class="tv-badges">
@@ -322,7 +327,8 @@
       if (clearBtn) clearBtn.addEventListener('click', () =>
         api(`/api/tvs/${tv.id}/clear-override`, { method: 'POST' }).catch(e => toast(e.message, true)));
 
-      card.querySelector('[data-act="forget"]').addEventListener('click', () => {
+      const forgetBtn = card.querySelector('[data-act="forget"]');
+      if (forgetBtn) forgetBtn.addEventListener('click', () => {
         if (!confirm(`Forget "${tv.name}"? The TV will re-pair as a new entry if its player is still running.`)) return;
         api(`/api/tvs/${tv.id}`, { method: 'DELETE' }).catch(e => toast(e.message, true));
       });
@@ -367,16 +373,18 @@
             .then(() => toast('Folder renamed')).catch(e => toast(e.message, true));
         });
         bar.appendChild(ren);
-        const del = document.createElement('button');
-        del.className = 'btn tiny danger';
-        del.textContent = '✕';
-        del.title = 'Delete folder (media moves back to All)';
-        del.addEventListener('click', () => {
-          if (!confirm(`Delete folder "${f.name}"? Its media moves back to the library — nothing is deleted.`)) return;
-          api(`/api/folders/${f.id}`, { method: 'DELETE' })
-            .then(() => { currentFolder = 'all'; toast('Folder deleted'); }).catch(e => toast(e.message, true));
-        });
-        bar.appendChild(del);
+        if (isOwner()) {
+          const del = document.createElement('button');
+          del.className = 'btn tiny danger';
+          del.textContent = '✕';
+          del.title = 'Delete folder (media moves back to All)';
+          del.addEventListener('click', () => {
+            if (!confirm(`Delete folder "${f.name}"? Its media moves back to the library — nothing is deleted.`)) return;
+            api(`/api/folders/${f.id}`, { method: 'DELETE' })
+              .then(() => { currentFolder = 'all'; toast('Folder deleted'); }).catch(e => toast(e.message, true));
+          });
+          bar.appendChild(del);
+        }
       }
     }
     const add = document.createElement('button');
@@ -430,10 +438,10 @@
               ${m.type === 'comp' ? '<button class="menu-item" data-act="editcomp">Edit design</button>' :
                 m.type === 'slide' ? '<button class="menu-item" data-act="editslide">Edit slide</button>' :
                 `<button class="menu-item" data-act="preview">${m.type === 'image' ? 'View' : 'Preview'}</button>`}
-              ${m.type === 'image' || m.type === 'video' ? '<button class="menu-item" data-act="replace">Replace file</button>' : ''}
+              ${isOwner() && (m.type === 'image' || m.type === 'video') ? '<button class="menu-item" data-act="replace">Replace file</button>' : ''}
               <button class="menu-item" data-act="all">Apply to all screens</button>
               ${folderOpts}
-              <button class="menu-item danger" data-act="del">Delete</button>
+              ${isOwner() ? '<button class="menu-item danger" data-act="del">Delete</button>' : ''}
             </div>
           </div>
         </div>
@@ -498,7 +506,8 @@
           .then(() => toast('Now playing on all screens')).catch(e => toast(e.message, true));
       });
 
-      card.querySelector('[data-act="del"]').addEventListener('click', () => {
+      const delBtn = card.querySelector('[data-act="del"]');
+      if (delBtn) delBtn.addEventListener('click', () => {
         if (!confirm(`Delete "${m.label}"? It will be removed from every screen.`)) return;
         api(`/api/media/${m.id}`, { method: 'DELETE' }).then(() => toast('Deleted')).catch(e => toast(e.message, true));
       });
@@ -1086,7 +1095,7 @@
         <div class="m-actions">
           <button class="btn tiny" data-act="edit">Edit</button>
           <button class="btn tiny" data-act="all">Apply to ALL screens</button>
-          <button class="btn tiny danger" data-act="del">Delete</button>
+          ${isOwner() ? '<button class="btn tiny danger" data-act="del">Delete</button>' : ''}
         </div>`;
       card.querySelector('[data-act="edit"]').addEventListener('click', () => openPlaylistModal(p));
       card.querySelector('[data-act="all"]').addEventListener('click', () => {
@@ -1094,7 +1103,8 @@
         api(`/api/playlists/${p.id}/assign-all`, { method: 'POST' })
           .then(() => toast(`"${p.name}" is now on all TVs`)).catch(e => toast(e.message, true));
       });
-      card.querySelector('[data-act="del"]').addEventListener('click', () => {
+      const plDelBtn = card.querySelector('[data-act="del"]');
+      if (plDelBtn) plDelBtn.addEventListener('click', () => {
         if (!confirm(`Delete playlist "${p.name}"? TVs using it fall back to their custom selection.`)) return;
         api(`/api/playlists/${p.id}`, { method: 'DELETE' }).then(() => toast('Playlist deleted')).catch(e => toast(e.message, true));
       });
@@ -1440,10 +1450,11 @@
         <div class="m-meta">${(th.elements || []).join(', ') || 'no extra effects'}</div>
         <div class="m-actions">
           <button class="btn tiny" data-act="edit">Edit</button>
-          <button class="btn tiny danger" data-act="del">Delete</button>
+          ${isOwner() ? '<button class="btn tiny danger" data-act="del">Delete</button>' : ''}
         </div>`;
       card.querySelector('[data-act="edit"]').addEventListener('click', () => openThemeModal(th));
-      card.querySelector('[data-act="del"]').addEventListener('click', () => {
+      const thDelBtn = card.querySelector('[data-act="del"]');
+      if (thDelBtn) thDelBtn.addEventListener('click', () => {
         if (!confirm(`Delete theme "${th.name}"? Parties using it switch to the party theme.`)) return;
         api(`/api/themes/${th.id}`, { method: 'DELETE' }).then(() => toast('Theme deleted')).catch(e => toast(e.message, true));
       });

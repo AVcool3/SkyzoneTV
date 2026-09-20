@@ -551,7 +551,7 @@ app.post('/api/tvs/:id/approve', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-app.delete('/api/tvs/:id', requireAuth, (req, res) => {
+app.delete('/api/tvs/:id', requireAuth, requireOwner, (req, res) => {
   const i = store.data.tvs.findIndex(t => t.id === req.params.id && t.venueId === req.venueId);
   if (i === -1) return res.status(404).json({ error: 'No such TV' });
   const [tv] = store.data.tvs.splice(i, 1);
@@ -683,7 +683,7 @@ app.post('/api/folders', requireAuth, (req, res) => {
   res.json({ ok: true, folder: f });
 });
 
-app.delete('/api/folders/:id', requireAuth, (req, res) => {
+app.delete('/api/folders/:id', requireAuth, requireOwner, (req, res) => {
   const i = store.data.folders.findIndex(f => f.id === req.params.id && f.venueId === req.venueId);
   if (i === -1) return res.status(404).json({ error: 'No such folder' });
   store.data.folders.splice(i, 1);
@@ -816,7 +816,7 @@ app.post('/api/comps', requireAuth, (req, res) => {
 
 // Swap the file behind an existing photo/video while keeping its identity —
 // it stays in every playlist and assignment, and screens refresh instantly.
-app.post('/api/media/:id/replace', requireAuth, (req, res) => {
+app.post('/api/media/:id/replace', requireAuth, requireOwner, (req, res) => {
   const m = store.medium(req.params.id);
   if (!owned(req, m)) return res.status(404).json({ error: 'No such media' });
   if (m.slide || m.comp) return res.status(400).json({ error: 'Slides and designs are edited in the dashboard, not replaced' });
@@ -853,7 +853,7 @@ app.patch('/api/media/:id', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-app.delete('/api/media/:id', requireAuth, (req, res) => {
+app.delete('/api/media/:id', requireAuth, requireOwner, (req, res) => {
   const i = store.data.media.findIndex(m => m.id === req.params.id && m.venueId === req.venueId);
   if (i === -1) return res.status(404).json({ error: 'No such media' });
   const [m] = store.data.media.splice(i, 1);
@@ -942,7 +942,7 @@ app.post('/api/playlists', requireAuth, (req, res) => {
   res.json({ ok: true, playlist: pl });
 });
 
-app.delete('/api/playlists/:id', requireAuth, (req, res) => {
+app.delete('/api/playlists/:id', requireAuth, requireOwner, (req, res) => {
   const i = store.data.playlists.findIndex(p => p.id === req.params.id && p.venueId === req.venueId);
   if (i === -1) return res.status(404).json({ error: 'No such playlist' });
   store.data.playlists.splice(i, 1);
@@ -1022,7 +1022,7 @@ app.post('/api/themes', requireAuth, (req, res) => {
   res.json({ ok: true, theme });
 });
 
-app.delete('/api/themes/:id', requireAuth, (req, res) => {
+app.delete('/api/themes/:id', requireAuth, requireOwner, (req, res) => {
   const themes = store.venue(req.venueId).customThemes;
   const i = themes.findIndex(c => c.id === req.params.id);
   if (i === -1) return res.status(404).json({ error: 'No such theme' });
