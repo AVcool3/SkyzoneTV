@@ -6,6 +6,7 @@
   let token = localStorage.getItem('parkcast.token') || localStorage.getItem('skyzone.token') || null;
   if (token) { try { localStorage.setItem('parkcast.token', token); } catch {} }
   let state = null;   // latest server snapshot
+  let me = null;      // who is signed in: { email, name, role, venueName }
   let ws = null;
   let wsDelay = 1000;
 
@@ -116,6 +117,9 @@
       state = await api('/api/state');
       render();
     } catch { return; }
+    // The Team page (owner portal) only exists for owners.
+    try { me = await api('/api/me'); } catch { me = null; }
+    $('teamTab').classList.toggle('hidden', !(me && me.role === 'owner'));
     connectWs();
     refreshRollerCard();
   }
@@ -149,6 +153,7 @@
       document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b === btn));
       document.querySelectorAll('.tabpane').forEach(p => p.classList.add('hidden'));
       $('tab-' + btn.dataset.tab).classList.remove('hidden');
+      if (btn.dataset.tab === 'team') renderTeam(); // not in the live snapshot — fetched on entry
     });
   });
 
@@ -1735,6 +1740,92 @@
 
   $('signoutBtn').addEventListener('click', () => logout());
   $('signoutBtnTop').addEventListener('click', () => logout());
+
+  // ---------- Team (owner portal) ----------
+  // Not part of the live snapshot: fetched when the page opens and after
+  // every change, and only ever served to owners.
+  async function renderTeam() {
+    let members;
+    try { members = (await api('/api/team')).members; }
+    catch (err) { toast(err.message, true); return; }
+    $('teamCount').textContent = members.length;
+    const list = $('teamList');
+    list.innerHTML = '';
+    for (const m of members) {
+      const row = document.createElement('div');
+      row.className = 'team-row';
+      row.innerHTML = `
+        <div class="team-id">
+          <b>${esc(m.name || m.email)}${m.you ? ' <span class="you-chip">you</span>' : ''}</b>
+          <span class="team-mail">${esc(m.email)}</span>
+        </div>
+        <span class="role-chip ${m.role}">${m.role === 'owner' ? 'Owner' : 'Staff'}</span>
+        ${m.you ? '' : `
+        <div class="kebab">
+          <button class="btn tiny kebab-btn" title="More actions" aria-label="More actions">⋯</button>
+          <div class="menu hidden">
+            <button class="menu-item" data-act="role">${m.role === 'owner' ? 'Make staff' : 'Make owner'}</button>
+            <button class="menu-item" data-act="password">Reset password</button>
+            <button class="menu-item danger" data-act="remove">Remove access</button>
+          </div>
+        </div>`}`;
+      const kebabBtn = row.querySelector('.kebab-btn');
+      if (kebabBtn) {
+        const menu = row.querySelector('.menu');
+        kebabBtn.addEventListener('click', e => {
+          e.stopPropagation();
+          const wasOpen = !menu.classList.contains('hidden');
+          closeAllMenus();
+          if (!wasOpen) menu.classList.remove('hidden');
+        });
+        menu.addEventListener('click', async e => {
+          const act = e.target.dataset?.act;
+          if (!act) return;
+          closeAllMenus();
+          try {
+            if (act === 'role') {
+              const next = m.role === 'owner' ? 'staff' : 'owner';
+              await api(`/api/team/${m.id}`, { method: 'PATCH', body: JSON.stringify({ role: next }) });
+              toast(`${m.name || m.email} is now ${next === 'owner' ? 'an owner' : 'staff'}`);
+            } else if (act === 'password') {
+              const pw = prompt(`New password for ${m.email} (8+ characters):`);
+              if (!pw) return;
+              await api(`/api/team/${m.id}`, { method: 'PATCH', body: JSON.stringify({ password: pw }) });
+              toast('Password changed — they are signed out everywhere');
+            } else if (act === 'remove') {
+              if (!confirm(`Remove ${m.email}? They lose access immediately.`)) return;
+              await api(`/api/team/${m.id}`, { method: 'DELETE' });
+              toast('Access removed');
+            }
+          } catch (err) { toast(err.message, true); }
+          renderTeam();
+        });
+      }
+      list.appendChild(row);
+    }
+  }
+
+  $('addMemberBtn').addEventListener('click', () => {
+    $('memberForm').classList.toggle('hidden');
+    if (!$('memberForm').classList.contains('hidden')) $('tmName').focus();
+  });
+  $('tmCancel').addEventListener('click', () => {
+    $('memberForm').reset();
+    $('memberForm').classList.add('hidden');
+  });
+  $('memberForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    try {
+      const r = await api('/api/team', { method: 'POST', body: JSON.stringify({
+        name: $('tmName').value, email: $('tmEmail').value,
+        password: $('tmPassword').value, role: $('tmRole').value
+      }) });
+      $('memberForm').reset();
+      $('memberForm').classList.add('hidden');
+      toast(`${r.member.email} can sign in now`);
+      renderTeam();
+    } catch (err) { toast(err.message, true); }
+  });
 
   $('claimBtn').addEventListener('click', () => {
     const code = prompt('Enter the 6-digit code shown on the TV:');

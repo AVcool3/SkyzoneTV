@@ -90,6 +90,13 @@ function requireAuth(req, res, next) {
 }
 // True when an item exists AND belongs to the caller's venue.
 const owned = (req, item) => !!item && item.venueId === req.venueId;
+// Owner-only actions (team management, venue settings). The legacy admin
+// password acts as the default venue's owner.
+function requireOwner(req, res, next) {
+  const role = req.userId === 'legacy-admin' ? 'owner' : store.user(req.userId)?.role;
+  if (role !== 'owner') return res.status(403).json({ error: 'Only owners can do this' });
+  next();
+}
 
 // ---------------------------------------------------------------------------
 // State snapshots
@@ -379,9 +386,87 @@ app.post('/api/signin', (req, res) => {
 });
 
 app.get('/api/me', requireAuth, (req, res) => {
-  const user = req.userId === 'legacy-admin' ? { email: null, name: 'Admin' } : store.user(req.userId);
+  const user = req.userId === 'legacy-admin'
+    ? { email: null, name: 'Admin', role: 'owner' }
+    : store.user(req.userId);
   res.json({ email: user?.email || null, name: user?.name || '',
+    role: user?.role || 'staff',
     venueName: store.venue(req.venueId)?.name || '' });
+});
+
+// ---- Team (owner portal): who can sign in to this venue ----
+const teamMember = (u, selfId) => ({
+  id: u.id, email: u.email, name: u.name, role: u.role,
+  createdAt: u.createdAt, you: u.id === selfId
+});
+
+// End every session a user holds — their bearer tokens and any live
+// dashboard sockets — so cutting access or resetting a password is instant.
+function revokeSessions(userId) {
+  store.data.settings.tokens = store.data.settings.tokens.filter(t => t.userId !== userId);
+  for (const ws of dashboardSockets) {
+    if (ws.userId === userId) { try { ws.close(4001, 'access revoked'); } catch {} }
+  }
+}
+
+app.get('/api/team', requireAuth, requireOwner, (req, res) => {
+  res.json({ members: store.data.users
+    .filter(u => u.venueId === req.venueId)
+    .map(u => teamMember(u, req.userId)) });
+});
+
+app.post('/api/team', requireAuth, requireOwner, (req, res) => {
+  const { email, name, password, role } = req.body || {};
+  const cleanEmail = String(email || '').trim().toLowerCase();
+  if (!EMAIL_RE.test(cleanEmail)) return res.status(400).json({ error: 'Enter a valid email address' });
+  if (typeof password !== 'string' || password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  }
+  if (store.userByEmail(cleanEmail)) return res.status(400).json({ error: 'That email already has an account' });
+  if (store.data.users.length >= 500) return res.status(429).json({ error: 'Account limit reached' });
+  const user = {
+    id: crypto.randomUUID(),
+    email: cleanEmail,
+    passHash: hashPassword(password),
+    name: String(name || '').trim().slice(0, 60),
+    venueId: req.venueId,
+    role: role === 'owner' ? 'owner' : 'staff',
+    createdAt: new Date().toISOString()
+  };
+  store.data.users.push(user);
+  store.save();
+  res.json({ ok: true, member: teamMember(user, req.userId) });
+});
+
+app.patch('/api/team/:id', requireAuth, requireOwner, (req, res) => {
+  const user = store.user(req.params.id);
+  if (!owned(req, user)) return res.status(404).json({ error: 'No such member' });
+  // Blocking self-edits keeps at least one owner in every venue.
+  if (user.id === req.userId) return res.status(400).json({ error: 'You cannot change your own access — ask another owner' });
+  const { role, password } = req.body || {};
+  if (role !== undefined) {
+    if (role !== 'owner' && role !== 'staff') return res.status(400).json({ error: 'Role must be owner or staff' });
+    user.role = role; // takes effect on their next request — roles are checked live
+  }
+  if (password !== undefined) {
+    if (typeof password !== 'string' || password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    }
+    user.passHash = hashPassword(password);
+    revokeSessions(user.id); // old sessions die with the old password
+  }
+  store.save();
+  res.json({ ok: true, member: teamMember(user, req.userId) });
+});
+
+app.delete('/api/team/:id', requireAuth, requireOwner, (req, res) => {
+  const user = store.user(req.params.id);
+  if (!owned(req, user)) return res.status(404).json({ error: 'No such member' });
+  if (user.id === req.userId) return res.status(400).json({ error: 'You cannot remove yourself' });
+  store.data.users = store.data.users.filter(u => u.id !== user.id);
+  revokeSessions(user.id);
+  store.save();
+  res.json({ ok: true });
 });
 
 // ---- Player registration (no auth) ----
@@ -952,7 +1037,7 @@ app.delete('/api/themes/:id', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-app.post('/api/settings', requireAuth, (req, res) => {
+app.post('/api/settings', requireAuth, requireOwner, (req, res) => {
   const { venueName: newVenueName } = req.body || {};
   if (newVenueName !== undefined) {
     if (!String(newVenueName).trim()) return res.status(400).json({ error: 'Venue name cannot be empty' });
@@ -1338,6 +1423,7 @@ wss.on('connection', ws => {
       const session = sessionFor(msg.token);
       if (!session) { ws.close(4001, 'bad token'); return; }
       ws.role = 'dashboard';
+      ws.userId = session.userId;
       ws.venueId = session.venueId;
       dashboardSockets.add(ws);
       ws.send(JSON.stringify(dashboardSnapshot(session.venueId)));

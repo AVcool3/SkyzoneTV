@@ -481,6 +481,57 @@ const run = async () => {
   const meA = await api(token, 'GET', '/api/me');
   check('legacy admin maps to default venue', meA.status === 200 && meA.data.venueName === state.settings.venueName);
 
+  // ---- owner portal: add, change, and cut team access ----
+  const team0 = await api(tokenB, 'GET', '/api/team');
+  check('owner sees team list with self marked',
+    team0.status === 200 && team0.data.members.some(m => m.email === vbEmail && m.you));
+  const selfId = team0.data.members.find(m => m.you).id;
+  // leftovers from an interrupted run
+  for (const m of team0.data.members) {
+    if (m.email === 'smoke-staff@test.dev') await api(tokenB, 'DELETE', `/api/team/${m.id}`);
+  }
+
+  const addStaff = await api(tokenB, 'POST', '/api/team', {
+    name: 'Front Desk', email: 'smoke-staff@test.dev', password: 'staff-pass-99', role: 'staff'
+  });
+  check('owner adds a staff account', addStaff.status === 200 && addStaff.data.member?.role === 'staff');
+  const staffId = addStaff.data.member.id;
+  const staffIn = await api(null, 'POST', '/api/signin', { email: 'smoke-staff@test.dev', password: 'staff-pass-99' });
+  check('staff can sign in', staffIn.status === 200 && !!staffIn.data.token);
+  const tokenS = staffIn.data.token;
+  const staffState = await api(tokenS, 'GET', '/api/state');
+  check('staff lands in the owner venue', staffState.data.settings?.venueName === 'Smoke Venue B');
+  const meS = await api(tokenS, 'GET', '/api/me');
+  check('me reports staff role', meS.data.role === 'staff');
+
+  check('staff cannot open the owner portal', (await api(tokenS, 'GET', '/api/team')).status === 403);
+  check('staff cannot add accounts',
+    (await api(tokenS, 'POST', '/api/team', { email: 'x@y.dev', password: '12345678' })).status === 403);
+  check('staff cannot rename the venue',
+    (await api(tokenS, 'POST', '/api/settings', { venueName: 'Hacked' })).status === 403);
+  check('owner cannot remove self', (await api(tokenB, 'DELETE', `/api/team/${selfId}`)).status === 400);
+
+  const promote = await api(tokenB, 'PATCH', `/api/team/${staffId}`, { role: 'owner' });
+  check('owner can promote staff to owner', promote.status === 200 && promote.data.member.role === 'owner');
+  check('promoted member can open the portal', (await api(tokenS, 'GET', '/api/team')).status === 200);
+  await api(tokenB, 'PATCH', `/api/team/${staffId}`, { role: 'staff' });
+  check('demotion applies immediately', (await api(tokenS, 'GET', '/api/team')).status === 403);
+
+  const resetPw = await api(tokenB, 'PATCH', `/api/team/${staffId}`, { password: 'new-staff-pass1' });
+  check('owner can reset a member password', resetPw.status === 200);
+  check('password reset revokes old sessions', (await api(tokenS, 'GET', '/api/state')).status === 401);
+  const staffIn2 = await api(null, 'POST', '/api/signin', { email: 'smoke-staff@test.dev', password: 'new-staff-pass1' });
+  check('new password works', staffIn2.status === 200);
+
+  check('cross-venue team access blocked',
+    (await api(token, 'PATCH', `/api/team/${staffId}`, { role: 'owner' })).status === 404);
+
+  check('owner cuts access', (await api(tokenB, 'DELETE', `/api/team/${staffId}`)).status === 200);
+  check('cut member loses access immediately',
+    (await api(staffIn2.data.token, 'GET', '/api/state')).status === 401);
+  check('cut member cannot sign back in',
+    (await api(null, 'POST', '/api/signin', { email: 'smoke-staff@test.dev', password: 'new-staff-pass1' })).status === 401);
+
   // cleanup: delete media + tvs created by this test
   await api(token, 'DELETE', `/api/media/${mediaId}`);
   state = (await api(token, 'GET', '/api/state')).data;

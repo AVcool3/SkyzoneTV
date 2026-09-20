@@ -48,6 +48,7 @@
       <button class="tab" data-tab="playlists">Playlists <span id="playlistCount" class="pill"></span></button>
       <button class="tab" data-tab="events">Parties <span id="eventCount" class="pill"></span></button>
       <button class="tab" data-tab="themes">Themes <span id="themeCount" class="pill"></span></button>
+      <button class="tab hidden" data-tab="team" id="teamTab">Team <span id="teamCount" class="pill"></span></button>
     </nav>
     <div class="nav-foot">
       <a class="btn ghost" href="mailto:srini.vanukuri@gmail.com?subject=ParkCast%20support">Support</a>
@@ -144,6 +145,29 @@
     </div>
     <h4 class="theme-h">Yours</h4>
     <div id="themeList" class="media-list"></div>
+  </section>
+
+  <!-- Team (owner portal): manage who can sign in to this venue -->
+  <section id="tab-team" class="tabpane hidden">
+    <div class="page-head">
+      <h1>Team</h1>
+      <p>Who can sign in to this venue. Owners manage the team; staff run the screens.</p>
+    </div>
+    <div class="pane-tools">
+      <button id="addMemberBtn" class="btn primary">+ Add member</button>
+    </div>
+    <form id="memberForm" class="member-form hidden">
+      <input id="tmName" placeholder="Name" maxlength="60">
+      <input id="tmEmail" type="email" placeholder="Email" required>
+      <input id="tmPassword" type="password" placeholder="Password (8+ characters)" required minlength="8">
+      <select id="tmRole">
+        <option value="staff">Staff</option>
+        <option value="owner">Owner</option>
+      </select>
+      <button type="submit" class="btn primary">Create account</button>
+      <button type="button" id="tmCancel" class="btn ghost">Cancel</button>
+    </form>
+    <div id="teamList" class="team-list"></div>
   </section>
 
   <!-- Parties (bookings feed the takeovers; every parsed field stays editable) -->
