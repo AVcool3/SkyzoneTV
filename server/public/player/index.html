@@ -7,6 +7,10 @@
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon.png" sizes="48x48" type="image/png">
 <style>
+  /* Never show native video controls or play-button overlays on screens. */
+  video::-webkit-media-controls,
+  video::-webkit-media-controls-start-playback-button,
+  video::-webkit-media-controls-overlay-play-button { display: none !important; -webkit-appearance: none; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { width: 100%; height: 100%; background: #000; overflow: hidden; cursor: none; }
   body { font-family: 'Segoe UI', Roboto, Arial, sans-serif; }

@@ -626,6 +626,12 @@ app.post('/api/tvs/:id/clear-override', requireAuth, (req, res) => {
 });
 
 // ---- Media ----
+// Multer hands filenames over latin1-decoded; re-decode so uploads with
+// accents, dashes, or any non-ASCII name keep a readable label.
+const fixName = name => {
+  try { return Buffer.from(String(name), 'latin1').toString('utf8'); }
+  catch { return String(name); }
+};
 const upload = multer({
   storage: multer.diskStorage({
     destination: MEDIA_DIR,
@@ -646,10 +652,11 @@ app.post('/api/media', requireAuth, (req, res) => {
     if (err) return res.status(400).json({ error: err.message });
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
     const ext = path.extname(req.file.filename);
+    const original = fixName(req.file.originalname);
     const m = {
       id: path.basename(req.file.filename, ext),
-      label: (req.body.label || req.file.originalname.replace(/\.[^.]+$/, '')).slice(0, 80),
-      originalName: req.file.originalname,
+      label: (req.body.label || original.replace(/\.[^.]+$/, '')).slice(0, 80),
+      originalName: original,
       ext,
       size: req.file.size,
       uploadedAt: new Date().toISOString(),
@@ -828,7 +835,7 @@ app.post('/api/media/:id/replace', requireAuth, requireOwner, (req, res) => {
     m.fileId = path.basename(req.file.filename, ext);
     m.ext = ext;
     m.size = req.file.size;
-    m.originalName = req.file.originalname;
+    m.originalName = fixName(req.file.originalname);
     try { fs.unlinkSync(oldPath); } catch {}
     store.save();
     pushAllTvs();

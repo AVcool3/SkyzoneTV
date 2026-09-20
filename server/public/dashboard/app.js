@@ -1575,10 +1575,83 @@
   let uploadActive = false, uploadDone = 0, uploadFailed = [];
 
   function uploadFiles(files) {
+    // PowerPoint decks are converted in the browser: each slide becomes an
+    // image in a folder named after the deck, plus a ready-made playlist.
+    const decks = [...files].filter(f => /\.pptx$/i.test(f.name));
+    for (const deck of decks) importPptx(deck);
     const accepted = [...files].filter(f => /\.(mp4|m4v|webm|mov|jpg|jpeg|png|gif|webp)$/i.test(f.name));
-    if (accepted.length === 0) { toast('Accepted: video (.mp4, .webm, .mov) or photos (.jpg, .png, .gif, .webp)', true); return; }
+    if (accepted.length === 0) {
+      if (decks.length === 0) toast('Accepted: video (.mp4, .webm, .mov), photos (.jpg, .png, .gif, .webp), or PowerPoint (.pptx)', true);
+      return;
+    }
     uploadQueue.push(...accepted);
     if (!uploadActive) { uploadActive = true; uploadDone = 0; uploadFailed = []; uploadNext(); }
+  }
+
+  // ---------- PowerPoint import ----------
+  // The heavy renderer only loads the first time a deck is imported.
+  const loadedScripts = {};
+  function loadScript(src) {
+    if (!loadedScripts[src]) {
+      loadedScripts[src] = new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = src;
+        s.onload = resolve;
+        s.onerror = () => { delete loadedScripts[src]; reject(new Error('Could not load ' + src)); };
+        document.head.appendChild(s);
+      });
+    }
+    return loadedScripts[src];
+  }
+
+  let pptxBusy = false;
+  async function importPptx(file) {
+    if (pptxBusy) { toast('Finishing the previous deck first — try again in a moment', true); return; }
+    pptxBusy = true;
+    const base = file.name.replace(/\.pptx$/i, '').trim().slice(0, 50) || 'Deck';
+    const stage = document.createElement('div');
+    try {
+      toast(`Converting "${base}"…`);
+      await loadScript('vendor/pptx-preview.umd.js');
+      await loadScript('vendor/html2canvas.min.js');
+
+      // Render the whole deck off-screen at TV resolution.
+      stage.style.cssText = 'position:fixed;left:-20000px;top:0;width:1280px;';
+      document.body.appendChild(stage);
+      const previewer = pptxPreview.init(stage, { width: 1280, height: 720, mode: 'list' });
+      await previewer.preview(await file.arrayBuffer());
+      const slides = stage.querySelectorAll('.pptx-preview-slide-wrapper');
+      if (slides.length === 0) throw new Error('No slides found in this file');
+      if (slides.length > 60) throw new Error('Deck has more than 60 slides — split it up');
+
+      // The deck's slides live in their own folder (reused if re-imported).
+      let folderId = null;
+      try { folderId = (await api('/api/folders', { method: 'POST', body: JSON.stringify({ name: base }) })).folder.id; }
+      catch { folderId = (state.folders || []).find(f => f.name.toLowerCase() === base.toLowerCase())?.id || null; }
+
+      const mediaIds = [];
+      for (let i = 0; i < slides.length; i++) {
+        toast(`Converting "${base}" — slide ${i + 1} of ${slides.length}`);
+        const canvas = await html2canvas(slides[i], { backgroundColor: '#ffffff', scale: 1.5 });
+        const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+        const form = new FormData();
+        if (folderId) form.append('folderId', folderId);
+        form.append('file', blob, `${base} - slide ${String(i + 1).padStart(2, '0')}.png`);
+        const res = await api('/api/media', { method: 'POST', body: form });
+        mediaIds.push(res.media.id);
+      }
+
+      // A ready-to-assign playlist of the whole deck, in order.
+      await api('/api/playlists', { method: 'POST', body: JSON.stringify({
+        name: base, items: mediaIds.map(id => ({ mediaId: id, enabled: true }))
+      }) });
+      toast(`"${base}" imported — ${mediaIds.length} slides, playlist ready to put on screens`);
+    } catch (err) {
+      toast(`Deck import failed: ${err.message}`, true);
+    } finally {
+      stage.remove();
+      pptxBusy = false;
+    }
   }
 
   function uploadNext() {
@@ -1733,6 +1806,11 @@
     api('/api/events/clear-done', { method: 'POST' }).then(() => toast('Cleared')).catch(e => toast(e.message, true)));
 
   // ---------- preview modal ----------
+  // No native controls (no play button overlay) — click the video to pause.
+  $('previewVideo').addEventListener('click', () => {
+    const v = $('previewVideo');
+    if (v.paused) v.play().catch(() => {}); else v.pause();
+  });
   $('previewClose').addEventListener('click', () => {
     $('previewVideo').pause();
     $('previewVideo').removeAttribute('src');
