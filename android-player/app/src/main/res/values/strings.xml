@@ -10,4 +10,9 @@
     <string name="boot_message">Enable "Display over other apps" for ParkCast Player so the screen relaunches by itself when the device reboots.</string>
     <string name="boot_open">Open setting</string>
     <string name="boot_later">Later</string>
+    <string name="setup_hint">http://192.168.1.50:8080</string>
+    <string name="exit_title">Exit ParkCast Player?</string>
+    <string name="exit_message">The screen will stop showing venue content until the app is opened again.</string>
+    <string name="exit_keep">Keep playing</string>
+    <string name="exit_confirm">Exit</string>
 </resources>

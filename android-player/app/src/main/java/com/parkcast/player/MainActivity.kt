@@ -22,14 +22,19 @@ import androidx.appcompat.app.AppCompatActivity
 /**
  * Full-screen kiosk WebView that loads the ParkCast player page.
  * Connects to the built-in server address on first boot (no setup screen —
- * the TV goes straight to its pairing code). Press MENU (☰) on the remote
- * to point it at a different server. Auto-retries if the server is
- * unreachable.
+ * the TV goes straight to its pairing code). Long-press OK/Select (or press
+ * MENU on remotes that have it) to point it at a different server.
+ * Auto-retries if the server is unreachable. Pressing BACK three times
+ * quickly offers a real exit — Play's TV review requires that BACK can
+ * always lead home, kiosk or not.
  */
 class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
     private val prefs by lazy { getSharedPreferences("parkcast", MODE_PRIVATE) }
+    private var loadWatchdog: Runnable? = null
+    private var backCount = 0
+    private var lastBackAt = 0L
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -92,6 +97,24 @@ class MainActivity : AppCompatActivity() {
                 recreate()
                 return true
             }
+
+            // A server that accepts the connection but never answers would
+            // leave the screen black indefinitely — after 20s of loading,
+            // fall back to the branded connecting screen and retry.
+            override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
+                loadWatchdog?.let { view.removeCallbacks(it) }
+                val w = Runnable {
+                    showConnecting(view)
+                    view.postDelayed({ view.loadUrl(playerUrl()) }, 5000)
+                }
+                loadWatchdog = w
+                view.postDelayed(w, 20000)
+            }
+
+            override fun onPageFinished(view: WebView, url: String?) {
+                loadWatchdog?.let { view.removeCallbacks(it) }
+                loadWatchdog = null
+            }
         }
 
         // First boot: connect straight to the built-in server — no setup
@@ -136,7 +159,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun promptForUrl() {
         val input = EditText(this).apply {
-            hint = "http://192.168.1.50:8080"
+            hint = getString(R.string.setup_hint)
             inputType = InputType.TYPE_TEXT_VARIATION_URI
             setText(prefs.getString("serverUrl", ""))
         }
@@ -157,9 +180,45 @@ class MainActivity : AppCompatActivity() {
             promptForUrl()
             return true
         }
-        // Kiosk: BACK on the remote must not close the player mid-shift.
-        if (keyCode == KeyEvent.KEYCODE_BACK) return true
+        // Google TV remotes have no MENU button: long-pressing OK/Select is
+        // the always-available way into the server-address dialog.
+        if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
+            event?.startTracking()
+            return true // the player page is display-only; nothing needs the press
+        }
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            // Kiosk: one stray BACK mid-shift is ignored, but three quick
+            // presses offer a real exit — TV review requires that BACK can
+            // always lead back to the Android TV home screen.
+            val now = android.os.SystemClock.uptimeMillis()
+            if (now - lastBackAt > 2000) backCount = 0
+            lastBackAt = now
+            if (++backCount >= 3) {
+                backCount = 0
+                confirmExit()
+            }
+            return true
+        }
         return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyLongPress(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
+            promptForUrl()
+            return true
+        }
+        return super.onKeyLongPress(keyCode, event)
+    }
+
+    private fun confirmExit() {
+        AlertDialog.Builder(this)
+            .setTitle(getString(R.string.exit_title))
+            .setMessage(getString(R.string.exit_message))
+            // "Keep playing" is the positive (default-focused) choice so an
+            // accidental OK press never blanks a venue screen.
+            .setPositiveButton(getString(R.string.exit_keep), null)
+            .setNegativeButton(getString(R.string.exit_confirm)) { _, _ -> finishAndRemoveTask() }
+            .show()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {

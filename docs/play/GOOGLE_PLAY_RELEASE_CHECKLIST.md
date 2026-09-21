@@ -1,6 +1,6 @@
 # Google Play Release Checklist — ParkCast Player
 
-App: **ParkCast Player** (`com.parkcast.player`) · v1.3 (versionCode 5) · AAB with Play App Signing
+App: **ParkCast Player** (`com.parkcast.player`) · v1.3.1 (versionCode 6) · AAB with Play App Signing
 Account: **UnlimitedFun LLC** — an **organization** developer account
 Companion docs: [CLOSED_TEST_PLAN.md](CLOSED_TEST_PLAN.md) · [GOOGLE_REVIEWER_INSTRUCTIONS.md](GOOGLE_REVIEWER_INSTRUCTIONS.md) · [STORE_LISTING.md](STORE_LISTING.md)
 
@@ -14,19 +14,24 @@ for the section name.
 ## 0. Current state (verify before touching anything)
 
 - [ ] The app already exists in the Console with a prior **internal testing**
-      release, v1.2.1. The new upload is **v1.3, versionCode 5** — versionCode
-      must be strictly higher than every previously uploaded build (it is: 5).
+      release, v1.2.1. The new upload is **v1.3.1, versionCode 6** —
+      versionCode must be strictly higher than every previously uploaded
+      build (check what the Console shows; the repo previously built v1.3 as
+      versionCode 5).
 - [ ] The build is an **.aab** (`android-player/app/build/outputs/bundle/release/app-release.aab`),
       signed with the upload key. Play only accepts AABs for new releases.
 - [ ] **Play App Signing is enrolled** (Release → Setup → App signing shows a
       Google-held app signing key distinct from your upload key).
 - [ ] **Upload key reset completed.** The original `keystore/upload.jks` was
       tracked in git before Sept 2026 and must be treated as exposed
-      (see `docs/STORE-PUBLISHING.md`). Confirm the reset was actually requested
-      and finished (Release → Setup → App signing → upload key certificate
-      fingerprint matches the NEW keystore, and the new keystore + passwords
-      live only in a password manager, not the repo). If v1.3 was built with the
-      old exposed key, stop and do the reset first.
+      (see `docs/STORE-PUBLISHING.md`). The v1.3.1 build is signed with a
+      freshly generated upload key (alias `parkcast`). Confirm the Console
+      side too: Release → Setup → App signing → **Request upload key reset**
+      was completed and the registered upload certificate fingerprint matches
+      the NEW keystore (`keytool -list -v -keystore upload.jks`). The new
+      keystore + passwords live only on the build machine and in a password
+      manager, never the repo. An AAB signed with a key the Console doesn't
+      recognize is rejected at upload — do not skip this cross-check.
 
 ---
 
@@ -194,9 +199,10 @@ it — under-declaring is the #1 cause of Data safety enforcement.
 
 ## 3. Android TV form factor opt-in
 
-The app is TV-only (leanback launcher entry, landscape, D-pad operable, no
-touch requirement in the manifest). It must be explicitly opted in to the TV
-form factor or it will never surface on Google TV devices.
+The app is TV-only (leanback launcher entry, `leanback required="true"` in
+the manifest, landscape, D-pad operable, no touch requirement). It must still
+be explicitly opted in to the TV form factor in the Console or it will never
+surface on Google TV devices.
 
 - [ ] Play Console → **Release → Setup → Advanced settings → Form factors** tab
       → **Add form factor → Android TV**.
@@ -212,10 +218,11 @@ form factor or it will never surface on Google TV devices.
         the address dialog; BACK is intentionally swallowed for kiosk mode —
         that is acceptable for a signage player but mention it in review notes
         if asked).
-- [ ] Decide whether to keep the phone/tablet form factor at all. This app is
-      pointless on a phone; if the Console allows restricting to TV-only,
-      do so — it avoids phone-form-factor screenshot requirements and
-      pre-launch phone crawls of a kiosk app.
+- [ ] The manifest now declares `android.software.leanback` as **required**,
+      so Play device targeting is TV-only — phones and tablets are filtered
+      out automatically. Confirm in the Console (Release → Device catalog)
+      that supported devices are TV devices only; that also removes
+      phone-form-factor screenshot pressure and phone pre-launch crawls.
 
 ## 4. TV store listing assets
 
@@ -245,7 +252,7 @@ form factor or it will never surface on Google TV devices.
 ## 6. Release flow (internal → closed → production)
 
 - [ ] **Internal testing** first: Release → Testing → Internal testing → create
-      release → upload `app-release.aab` (v1.3 / 5) → add your own Google
+      release → upload `app-release.aab` (v1.3.1 / 6) → add your own Google
       accounts as testers → install on the real onn/Fire TV hardware from the
       Play Store link and confirm the store-delivered build pairs and plays.
       Internal testing propagates in minutes and needs no review.
@@ -259,10 +266,10 @@ form factor or it will never surface on Google TV devices.
       of a TV app gets the full review (1–7 days typically; TV quality review
       can be longer). Country availability: start with the countries you can
       support (US at minimum), expand later.
-- [ ] Release notes for v1.3: short, honest ("Automatic connection to your
+- [ ] Release notes for v1.3.1: short, honest ("Automatic connection to your
       ParkCast workspace on first boot; pairing-code flow; reliability fixes
       for overnight playback and reboot recovery" — adjust to match the actual
-      1.2.1→1.3 changes).
+      1.2.1→1.3.1 changes).
 
 ## 7. Pre-launch report
 

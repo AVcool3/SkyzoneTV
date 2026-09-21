@@ -1,6 +1,6 @@
-# Closed Test Plan — ParkCast Player v1.3 (versionCode 5)
+# Closed Test Plan — ParkCast Player v1.3.1 (versionCode 6)
 
-Track: Google Play **Closed testing** · Build: `app-release.aab` (v1.3 / 5)
+Track: Google Play **Closed testing** · Build: `app-release.aab` (v1.3.1 / 6)
 Prereq: the same build has already passed a quick smoke on the **Internal
 testing** track (installs from Play, pairs, plays).
 
@@ -127,7 +127,7 @@ below; do not overwrite this plan). Evidence rules:
 # Closed Test Report — ParkCast Player
 
 Test window: <start date> → <end date>
-Builds tested: v1.3 (5)<, v1.3.1 (6), …>
+Builds tested: v1.3.1 (6)<, v1.3.2 (7), …>
 Track opt-in peak / minimum: <n> / <n> testers
 Evidence folder: <link>
 
