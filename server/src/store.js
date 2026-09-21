@@ -46,9 +46,10 @@ export class Store {
       const legacy = d.settings || {};
       d.venues.push({
         id: crypto.randomUUID(),
-        name: legacy.venueName || 'Sky Zone Schaumburg',
+        name: legacy.venueName || 'My Venue',
         dayStarted: legacy.dayStarted !== false,
         customThemes: Array.isArray(legacy.customThemes) ? legacy.customThemes : [],
+        tz: null, // per-venue IANA timezone; null = server default
         createdAt: new Date().toISOString()
       });
       delete legacy.venueName;
@@ -60,13 +61,19 @@ export class Store {
     let touched = false;
     for (const coll of ['tvs', 'media', 'folders', 'playlists', 'events']) {
       for (const item of d[coll]) {
-        if (!item.venueId) { item.venueId = def; touched = true; }
+        // Pre-multi-tenant rows have NO venueId key. A row whose venueId is
+        // explicitly null is an unclaimed cloud screen waiting for its
+        // pairing code to be typed — adopting it here would steal it into
+        // the default venue on every deploy, so only undefined migrates.
+        if (item.venueId === undefined) { item.venueId = def; touched = true; }
       }
     }
-    // Legacy plain-string tokens become sessions of the default venue owner.
-    if (d.settings.tokens.some(t => typeof t === 'string')) {
+    // Legacy plain-string tokens become sessions of the default venue owner;
+    // sessions from before expiry existed get a birth date so they age out.
+    if (d.settings.tokens.some(t => typeof t === 'string' || !t.createdAt)) {
       d.settings.tokens = d.settings.tokens.map(t =>
-        typeof t === 'string' ? { token: t, userId: 'legacy-admin' } : t);
+        typeof t === 'string' ? { token: t, userId: 'legacy-admin', createdAt: Date.now() }
+          : (t.createdAt ? t : { ...t, createdAt: Date.now() }));
       touched = true;
     }
     if (touched) this.saveNow();

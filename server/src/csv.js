@@ -11,6 +11,7 @@
 // message:  optional custom headline (default "Happy Birthday, <name>!")
 // duration: minutes on screen (default 5)
 // media:    optional media label from the library to play behind the message
+import { zonedTimeToUtc } from './tz.js';
 
 export function parseCsv(text) {
   const rows = [];
@@ -120,7 +121,8 @@ export function resolveTheme(value, customThemes = []) {
 }
 
 // Returns { events: [...], errors: [{line, error}] }
-export function parseEventsCsv(text, tvs, media, customThemes = []) {
+// `tz` is the venue's IANA timezone; CSV times are wall-clock in that zone.
+export function parseEventsCsv(text, tvs, media, customThemes = [], tz = null) {
   const rows = parseCsv(text);
   if (rows.length === 0) return { events: [], errors: [{ line: 0, error: 'Empty file' }] };
 
@@ -179,7 +181,7 @@ export function parseEventsCsv(text, tvs, media, customThemes = []) {
       theme = 'party';
     }
 
-    const startsAt = new Date(date.y, date.mo - 1, date.d, time.h, time.min, 0, 0);
+    const startsAt = zonedTimeToUtc(date.y, date.mo, date.d, time.h, time.min, tz);
     events.push({
       tvId: tv.id,
       name,

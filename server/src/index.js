@@ -8,11 +8,12 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { Store } from './store.js';
-import { parseEventsCsv, matchMedia, matchTv, normalizeTheme, resolveTheme, normalizeLabel, THEMES,
+import { parseEventsCsv, matchMedia, matchTv, normalizeTheme, resolveTheme, normalizeLabel,
   parseCsv, parseDate, parseTime } from './csv.js';
 import { parseByline, defaultBirthdayMessage } from './byline.js';
 import { rollerStatus, rollerSync } from './roller.js';
 import { startScheduler } from './scheduler.js';
+import { zonedTimeToUtc, isValidTz } from './tz.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -60,11 +61,22 @@ function verifyPassword(password, stored) {
   return probe.length === known.length && crypto.timingSafeEqual(probe, known);
 }
 
+const SESSION_TTL_MS = 30 * 86_400_000; // sessions expire after 30 days
+const TOKENS_PER_USER = 10;             // signing in on an 11th device evicts the oldest
+
 function issueToken(userId) {
   const token = crypto.randomBytes(24).toString('hex');
-  const tokens = store.data.settings.tokens;
-  tokens.push({ token, userId });
-  while (tokens.length > 200) tokens.shift();
+  let tokens = store.data.settings.tokens;
+  // Caps are per-user so one busy (or hostile) account can never evict
+  // other venues' live sessions, plus a generous global backstop.
+  const mine = tokens.filter(t => t.userId === userId);
+  if (mine.length >= TOKENS_PER_USER) {
+    const drop = new Set(mine.slice(0, mine.length - TOKENS_PER_USER + 1).map(t => t.token));
+    tokens = tokens.filter(t => !drop.has(t.token));
+  }
+  tokens.push({ token, userId, createdAt: Date.now() });
+  while (tokens.length > 2000) tokens.shift();
+  store.data.settings.tokens = tokens;
   store.save();
   return token;
 }
@@ -73,6 +85,11 @@ function sessionFor(token) {
   if (!token) return null;
   const entry = store.data.settings.tokens.find(t => t.token === token);
   if (!entry) return null;
+  if (entry.createdAt && Date.now() - entry.createdAt > SESSION_TTL_MS) {
+    store.data.settings.tokens = store.data.settings.tokens.filter(t => t !== entry);
+    store.save();
+    return null;
+  }
   if (entry.userId === 'legacy-admin') {
     return { userId: 'legacy-admin', venueId: store.defaultVenueId() };
   }
@@ -160,7 +177,8 @@ function dashboardSnapshot(venueId) {
     settings: {
       dayStarted: venue.dayStarted !== false,
       customThemes: venue.customThemes || [],
-      venueName: venue.name
+      venueName: venue.name,
+      tz: venue.tz || ''
     },
     serverTime: new Date().toISOString()
   };
@@ -251,7 +269,7 @@ function pushTv(tvId) {
   }
 }
 
-function pushAllTvs() { for (const tv of store.data.tvs) pushTv(tv.id); }
+function pushVenueTvs(venueId) { for (const tv of store.tvsOf(venueId)) pushTv(tv.id); }
 
 function pushDashboards(venueId) {
   const cache = new Map();
@@ -277,7 +295,11 @@ function loginLimited(ip) {
   const entry = loginAttempts.get(ip);
   if (!entry || now > entry.resetAt) {
     loginAttempts.set(ip, { count: 1, resetAt: now + 15 * 60_000 });
-    if (loginAttempts.size > 10000) loginAttempts.clear();
+    if (loginAttempts.size > 10000) {
+      // Evict only expired windows — clearing everything would reset an
+      // attacker's own counter along with everyone else's.
+      for (const [k, v] of loginAttempts) if (now > v.resetAt) loginAttempts.delete(k);
+    }
     return false;
   }
   entry.count++;
@@ -291,12 +313,11 @@ const VERSION = (() => {
 })();
 const bootedAt = Date.now();
 app.get('/healthz', (req, res) => {
+  // Liveness only — fleet counts are tenant data and stay behind auth.
   res.json({
     ok: true,
     version: VERSION,
     uptimeSec: Math.round((Date.now() - bootedAt) / 1000),
-    tvs: store.data.tvs.length,
-    online: store.data.tvs.filter(t => tvOnline(t.id)).length,
     time: new Date().toISOString()
   });
 });
@@ -342,7 +363,12 @@ app.post('/api/signup', (req, res) => {
   if (store.userByEmail(cleanEmail)) return res.status(400).json({ error: 'That email already has an account — sign in instead' });
   if (store.data.users.length >= 500) return res.status(429).json({ error: 'Signups are temporarily closed' });
 
-  const claimsDefault = store.data.users.length === 0 && (!OWNER_EMAIL || OWNER_EMAIL === cleanEmail);
+  // The default venue (all pre-multi-tenant screens and media) goes to the
+  // first signup that is ALLOWED to claim it: the OWNER_EMAIL when one is
+  // set, otherwise whoever signs up first. A stranger signing up earlier
+  // gets a fresh venue and never blocks the real owner's claim.
+  const defaultClaimed = store.data.users.some(u => u.venueId === store.defaultVenueId());
+  const claimsDefault = !defaultClaimed && (!OWNER_EMAIL || OWNER_EMAIL === cleanEmail);
   let venueId;
   if (claimsDefault) {
     venueId = store.defaultVenueId();
@@ -392,6 +418,37 @@ app.get('/api/me', requireAuth, (req, res) => {
   res.json({ email: user?.email || null, name: user?.name || '',
     role: user?.role || 'staff',
     venueName: store.venue(req.venueId)?.name || '' });
+});
+
+// Sign out server-side: the token stops working everywhere, not just in
+// the browser that forgot it.
+app.post('/api/logout', requireAuth, (req, res) => {
+  const token = (req.headers.authorization || '').slice(7);
+  store.data.settings.tokens = store.data.settings.tokens.filter(t => t.token !== token);
+  store.save();
+  res.json({ ok: true });
+});
+
+// Change your own password (any role). Other sessions are signed out; the
+// one making the change keeps working.
+app.post('/api/me/password', requireAuth, (req, res) => {
+  if (req.userId === 'legacy-admin') {
+    return res.status(400).json({ error: 'The admin password is set in the server environment' });
+  }
+  const { current, next } = req.body || {};
+  const user = store.user(req.userId);
+  if (!user || typeof current !== 'string' || !verifyPassword(current, user.passHash)) {
+    return res.status(401).json({ error: 'Current password is wrong' });
+  }
+  if (typeof next !== 'string' || next.length < 8) {
+    return res.status(400).json({ error: 'New password must be at least 8 characters' });
+  }
+  user.passHash = hashPassword(next);
+  const keep = (req.headers.authorization || '').slice(7);
+  store.data.settings.tokens = store.data.settings.tokens.filter(
+    t => t.userId !== user.id || t.token === keep);
+  store.save();
+  res.json({ ok: true });
 });
 
 // ---- Team (owner portal): who can sign in to this venue ----
@@ -444,14 +501,16 @@ app.patch('/api/team/:id', requireAuth, requireOwner, (req, res) => {
   // Blocking self-edits keeps at least one owner in every venue.
   if (user.id === req.userId) return res.status(400).json({ error: 'You cannot change your own access — ask another owner' });
   const { role, password } = req.body || {};
-  if (role !== undefined) {
-    if (role !== 'owner' && role !== 'staff') return res.status(400).json({ error: 'Role must be owner or staff' });
-    user.role = role; // takes effect on their next request — roles are checked live
+  // Validate EVERYTHING before touching the user: a request that half-fails
+  // must change nothing, or "error" responses silently apply edits.
+  if (role !== undefined && role !== 'owner' && role !== 'staff') {
+    return res.status(400).json({ error: 'Role must be owner or staff' });
   }
+  if (password !== undefined && (typeof password !== 'string' || password.length < 8)) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  }
+  if (role !== undefined) user.role = role; // takes effect on their next request — roles are checked live
   if (password !== undefined) {
-    if (typeof password !== 'string' || password.length < 8) {
-      return res.status(400).json({ error: 'Password must be at least 8 characters' });
-    }
     user.passHash = hashPassword(password);
     revokeSessions(user.id); // old sessions die with the old password
   }
@@ -479,10 +538,39 @@ function nextTvName(venueId) {
   return `TV ${n}`;
 }
 
+// A pairing code no other waiting screen is showing (collisions would let
+// a claim grab the wrong TV).
+function freshPairCode() {
+  for (;;) {
+    const code = String(100000 + crypto.randomInt(900000));
+    if (!store.data.tvs.some(t => !t.venueId && t.pairCode === code)) return code;
+  }
+}
+
+// Registration is necessarily unauthenticated (it IS the pairing step), so
+// new-screen creation is rate limited per IP to keep junk rows bounded.
+const registerAttempts = new Map(); // ip -> { count, resetAt }
+function registerLimited(ip) {
+  const now = Date.now();
+  const entry = registerAttempts.get(ip);
+  if (!entry || now > entry.resetAt) {
+    registerAttempts.set(ip, { count: 1, resetAt: now + 60 * 60_000 });
+    if (registerAttempts.size > 10000) {
+      for (const [k, v] of registerAttempts) if (now > v.resetAt) registerAttempts.delete(k);
+    }
+    return false;
+  }
+  entry.count++;
+  return entry.count > 10;
+}
+
 app.post('/api/player/register', (req, res) => {
   const { existingId } = req.body || {};
   let tv = existingId ? store.tv(existingId) : null;
   if (!tv) {
+    if (registerLimited(req.ip)) {
+      return res.status(429).json({ error: 'Too many new screens from this network — try again in an hour' });
+    }
     if (store.data.tvs.length >= 500) {
       return res.status(429).json({ error: 'Screen limit reached' });
     }
@@ -498,7 +586,8 @@ app.post('/api/player/register', (req, res) => {
       lastSeen: new Date().toISOString(),
       power: 'on',
       approved: !cloud,
-      pairCode: String(100000 + crypto.randomInt(900000)),
+      pairCode: freshPairCode(),
+      pairCodeAt: Date.now(),
       assignedMediaIds: [],
       playlistId: null,
       nowPlaying: null,
@@ -511,12 +600,56 @@ app.post('/api/player/register', (req, res) => {
   res.json({ tvId: tv.id, name: tv.name });
 });
 
+// Pairing-pool maintenance: codes rotate so they can't be brute-forced over
+// time, and screens nobody ever claims don't pile up against the cap. A
+// still-connected screen just shows its new code; an abandoned row (no
+// heartbeat for a day) is dropped — the player re-registers if it returns.
+const PAIR_CODE_TTL = 15 * 60_000;
+const UNCLAIMED_TTL = 24 * 60 * 60_000;
+setInterval(() => {
+  let changed = false;
+  const keep = [];
+  for (const tv of store.data.tvs) {
+    if (tv.venueId) { keep.push(tv); continue; }
+    if (Date.now() - Date.parse(tv.lastSeen || tv.createdAt) > UNCLAIMED_TTL) { changed = true; continue; }
+    if (Date.now() - (tv.pairCodeAt || 0) > PAIR_CODE_TTL) {
+      tv.pairCode = freshPairCode();
+      tv.pairCodeAt = Date.now();
+      changed = true;
+      keep.push(tv);
+      pushTv(tv.id);
+    } else keep.push(tv);
+  }
+  if (changed) { store.data.tvs = keep; store.save(); }
+}, 60_000).unref();
+
+// Claiming is rate limited per account: six-digit codes only stay safe if
+// nobody gets to guess a million of them.
+const claimAttempts = new Map(); // userId -> { count, resetAt }
+function claimLimited(userId) {
+  const now = Date.now();
+  const entry = claimAttempts.get(userId);
+  if (!entry || now > entry.resetAt) {
+    claimAttempts.set(userId, { count: 1, resetAt: now + 15 * 60_000 });
+    return false;
+  }
+  entry.count++;
+  return entry.count > 20;
+}
+
 // Claim an unpaired screen into the caller's venue by its on-screen code.
 app.post('/api/tvs/claim', requireAuth, (req, res) => {
+  if (claimLimited(req.userId)) {
+    return res.status(429).json({ error: 'Too many attempts — wait 15 minutes and read the code off the TV again' });
+  }
   const code = String(req.body?.code || '').replace(/\D/g, '');
   if (code.length !== 6) return res.status(400).json({ error: 'Enter the 6-digit code shown on the TV' });
   const tv = store.data.tvs.find(t => !t.venueId && t.pairCode === code);
   if (!tv) return res.status(404).json({ error: 'No waiting screen has that code — check the TV and try again' });
+  if (store.tvsOf(req.venueId).length >= 100) {
+    return res.status(429).json({ error: 'This venue has reached its 100-screen limit' });
+  }
+  claimAttempts.delete(req.userId);
   tv.venueId = req.venueId;
   tv.approved = true;
   tv.name = nextTvName(req.venueId);
@@ -533,7 +666,14 @@ app.patch('/api/tvs/:id', requireAuth, (req, res) => {
   const tv = store.tv(req.params.id);
   if (!owned(req, tv)) return res.status(404).json({ error: 'No such TV' });
   const { name, fit } = req.body || {};
-  if (typeof name === 'string' && name.trim()) tv.name = name.trim().slice(0, 60);
+  if (typeof name === 'string' && name.trim()) {
+    const clean = name.trim().slice(0, 60);
+    // Names must stay unique per venue: booking imports route parties to
+    // screens BY NAME, and a duplicate would send a birthday to the wrong room.
+    const clash = store.tvsOf(req.venueId).find(t => t.id !== tv.id && normalizeLabel(t.name) === normalizeLabel(clean));
+    if (clash) return res.status(400).json({ error: `Another screen is already named "${clash.name}"` });
+    tv.name = clean;
+  }
   if (fit === 'contain' || fit === 'cover') tv.fit = fit;
   store.save();
   pushTv(tv.id);
@@ -557,6 +697,10 @@ app.delete('/api/tvs/:id', requireAuth, requireOwner, (req, res) => {
   const [tv] = store.data.tvs.splice(i, 1);
   for (const ws of playerSockets.get(tv.id) || []) ws.close();
   playerSockets.delete(tv.id);
+  // Cascade: parties scheduled for a screen that no longer exists would sit
+  // in the list and silently never play; active ones finish now.
+  store.data.events = store.data.events.filter(e => !(e.tvId === tv.id && e.status === 'scheduled'));
+  for (const e of store.data.events) if (e.tvId === tv.id && e.status === 'active') e.status = 'done';
   store.save();
   pushDashboards();
   res.json({ ok: true });
@@ -678,6 +822,9 @@ app.post('/api/folders', requireAuth, (req, res) => {
   const clash = store.foldersOf(req.venueId).find(f => f.id !== id && normalizeLabel(f.name) === normalizeLabel(clean));
   if (clash) return res.status(400).json({ error: `A folder named "${clash.name}" already exists` });
   let f = id ? store.data.folders.find(x => x.id === id && x.venueId === req.venueId) : null;
+  // A rename aimed at a folder that no longer exists must fail loudly, not
+  // silently fork a new folder (same contract as playlists).
+  if (id && !f) return res.status(404).json({ error: 'That folder no longer exists — refresh and try again' });
   if (!f) {
     if (store.foldersOf(req.venueId).length >= 50) return res.status(400).json({ error: 'Folder limit reached' });
     f = { id: crypto.randomUUID(), venueId: req.venueId, name: clean };
@@ -736,7 +883,7 @@ app.post('/api/slides', requireAuth, (req, res) => {
   const d = parseFloat(durationSec);
   if (Number.isFinite(d)) m.durationSec = Math.min(Math.max(d, 1), 3600);
   store.save();
-  pushAllTvs();
+  pushVenueTvs(req.venueId);
   pushDashboards();
   res.json({ ok: true, media: mediaPublic(m) });
 });
@@ -816,7 +963,7 @@ app.post('/api/comps', requireAuth, (req, res) => {
   const d = parseFloat(durationSec);
   if (Number.isFinite(d)) m.durationSec = Math.min(Math.max(d, 1), 3600);
   store.save();
-  pushAllTvs();
+  pushVenueTvs(req.venueId);
   pushDashboards();
   res.json({ ok: true, media: mediaPublic(m) });
 });
@@ -838,7 +985,7 @@ app.post('/api/media/:id/replace', requireAuth, requireOwner, (req, res) => {
     m.originalName = fixName(req.file.originalname);
     try { fs.unlinkSync(oldPath); } catch {}
     store.save();
-    pushAllTvs();
+    pushVenueTvs(req.venueId);
     pushDashboards();
     res.json({ ok: true, media: mediaPublic(m) });
   });
@@ -855,7 +1002,7 @@ app.patch('/api/media/:id', requireAuth, (req, res) => {
     if (Number.isFinite(d)) m.durationSec = Math.min(Math.max(d, 1), 3600);
   }
   store.save();
-  pushAllTvs();
+  pushVenueTvs(req.venueId);
   pushDashboards();
   res.json({ ok: true });
 });
@@ -894,20 +1041,20 @@ app.delete('/api/media/:id', requireAuth, requireOwner, (req, res) => {
   }
   if (!m.slide && !m.comp) { try { fs.unlinkSync(path.join(MEDIA_DIR, (m.fileId || m.id) + m.ext)); } catch {} }
   store.save();
-  if (compsTouched) pushAllTvs();
+  if (compsTouched) pushVenueTvs(req.venueId);
   else for (const id of touched) pushTv(id);
   pushDashboards();
   res.json({ ok: true });
 });
 
-// Assign the same playlist to every TV in one shot.
+// Assign the same media selection to every TV in one shot.
 app.post('/api/assign-all', requireAuth, (req, res) => {
   const { mediaIds } = req.body || {};
   if (!Array.isArray(mediaIds)) return res.status(400).json({ error: 'mediaIds must be an array' });
   const clean = mediaIds.filter(id => owned(req, store.medium(id)));
   for (const tv of store.tvsOf(req.venueId)) { tv.assignedMediaIds = [...clean]; tv.playlistId = null; }
   store.save();
-  pushAllTvs();
+  pushVenueTvs(req.venueId);
   pushDashboards();
   res.json({ ok: true });
 });
@@ -968,7 +1115,7 @@ app.post('/api/playlists/:id/assign-all', requireAuth, (req, res) => {
   if (!owned(req, store.playlist(req.params.id))) return res.status(404).json({ error: 'No such playlist' });
   for (const tv of store.tvsOf(req.venueId)) tv.playlistId = req.params.id;
   store.save();
-  pushAllTvs();
+  pushVenueTvs(req.venueId);
   pushDashboards();
   res.json({ ok: true });
 });
@@ -979,7 +1126,7 @@ app.post('/api/tvs/:id/playlist', requireAuth, (req, res) => {
   if (!owned(req, tv)) return res.status(404).json({ error: 'No such TV' });
   const { playlistId } = req.body || {};
   if (playlistId !== null && !owned(req, store.playlist(playlistId))) {
-    return res.status(400).json({ error: 'No such playlist' });
+    return res.status(404).json({ error: 'No such playlist' });
   }
   tv.playlistId = playlistId;
   store.save();
@@ -1000,6 +1147,10 @@ app.post('/api/themes', requireAuth, (req, res) => {
     return res.status(400).json({ error: `"${cleanName}" is a built-in theme name — pick another` });
   }
   const themes = store.venue(req.venueId).customThemes;
+  // An edit aimed at a deleted theme fails loudly instead of forking a copy.
+  if (id && !themes.some(c => c.id === id)) {
+    return res.status(404).json({ error: 'That theme no longer exists — refresh and try again' });
+  }
   const clash = themes.find(c => c.id !== id && normalizeLabel(c.name) === normalizeLabel(cleanName));
   if (clash) return res.status(400).json({ error: `A theme named "${clash.name}" already exists` });
   if (!Array.isArray(bg) || bg.length < 2 || !bg.every(isColor)) {
@@ -1045,12 +1196,19 @@ app.delete('/api/themes/:id', requireAuth, requireOwner, (req, res) => {
 });
 
 app.post('/api/settings', requireAuth, requireOwner, (req, res) => {
-  const { venueName: newVenueName } = req.body || {};
+  const { venueName: newVenueName, tz } = req.body || {};
+  if (newVenueName !== undefined && !String(newVenueName).trim()) {
+    return res.status(400).json({ error: 'Venue name cannot be empty' });
+  }
+  if (tz !== undefined && tz !== null && tz !== '' && !isValidTz(tz)) {
+    return res.status(400).json({ error: 'Unknown timezone' });
+  }
+  const venue = store.venue(req.venueId);
   if (newVenueName !== undefined) {
-    if (!String(newVenueName).trim()) return res.status(400).json({ error: 'Venue name cannot be empty' });
-    store.venue(req.venueId).name = String(newVenueName).trim().slice(0, 60);
+    venue.name = String(newVenueName).trim().slice(0, 60);
     for (const tv of store.tvsOf(req.venueId)) pushTv(tv.id); // subline updates immediately
   }
+  if (tz !== undefined) venue.tz = tz || null; // imported party times use this zone
   store.save();
   pushDashboards();
   res.json({ ok: true });
@@ -1063,9 +1221,10 @@ app.post('/api/events/csv', requireAuth, (req, res) => {
   csvUpload.single('file')(req, res, err => {
     if (err) return res.status(400).json({ error: err.message });
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    const venue = store.venue(req.venueId);
     const { events, errors } = parseEventsCsv(req.file.buffer.toString('utf8'),
       store.tvsOf(req.venueId), store.mediaOf(req.venueId),
-      store.venue(req.venueId).customThemes);
+      venue.customThemes, venue.tz || null);
     if (events.length === 0) {
       // Nothing valid in the file (wrong file, bad headers): never wipe the
       // existing schedule on a failed import.
@@ -1102,7 +1261,7 @@ app.post('/api/events/csv', requireAuth, (req, res) => {
 app.post('/api/events', requireAuth, (req, res) => {
   const { tvId, name, age, message, startsAt, durationMin, mediaLabel, theme } = req.body || {};
   const tv = store.tv(tvId);
-  if (!owned(req, tv)) return res.status(400).json({ error: 'Pick a TV' });
+  if (!owned(req, tv)) return res.status(404).json({ error: 'No such TV' });
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'Name is required' });
   const start = Date.parse(startsAt);
   if (!Number.isFinite(start)) return res.status(400).json({ error: 'Bad start time' });
@@ -1120,6 +1279,12 @@ app.post('/api/events', requireAuth, (req, res) => {
   }
   // Same contract as PATCH: an explicitly given unknown theme is an error,
   // not a silent fallback to party.
+  let cleanDuration = 5;
+  if (durationMin !== undefined && durationMin !== null && durationMin !== '') {
+    const d = parseFloat(durationMin);
+    if (!Number.isFinite(d) || d <= 0) return res.status(400).json({ error: 'Duration must be a positive number of minutes' });
+    cleanDuration = Math.min(Math.max(d, 0.2), 240);
+  }
   const cleanTheme = resolveTheme(theme, store.venue(req.venueId).customThemes);
   if (theme && !cleanTheme) return res.status(400).json({ error: 'Unknown theme' });
   const ev = {
@@ -1130,7 +1295,7 @@ app.post('/api/events', requireAuth, (req, res) => {
     age: cleanAge,
     message: message ? String(message).slice(0, 120) : null,
     startsAt: new Date(start).toISOString(),
-    durationMin: Math.min(Math.max(parseFloat(durationMin) || 5, 0.2), 240),
+    durationMin: cleanDuration,
     mediaId,
     theme: cleanTheme || 'party',
     status: 'scheduled',
@@ -1150,38 +1315,42 @@ app.patch('/api/events/:id', requireAuth, (req, res) => {
   const ev = store.event(req.params.id);
   if (!owned(req, ev)) return res.status(404).json({ error: 'No such event' });
   const { name, age, message, theme, tvId, startsAt, durationMin } = req.body || {};
+  // Two passes — validate everything, THEN apply — so a request that fails
+  // any field changes nothing (a half-applied edit persists silently).
+  const apply = {};
   if (name !== undefined) {
     if (!String(name).trim()) return res.status(400).json({ error: 'Name cannot be empty' });
-    ev.name = String(name).trim().slice(0, 60);
+    apply.name = String(name).trim().slice(0, 60);
   }
   if (age !== undefined) {
-    if (age === null || age === '') ev.age = null;
+    if (age === null || age === '') apply.age = null;
     else {
       const a = parseInt(age, 10);
       if (!Number.isFinite(a) || a < 1 || a > 99) return res.status(400).json({ error: 'Age must be 1–99 (or blank)' });
-      ev.age = a;
+      apply.age = a;
     }
   }
-  if (message !== undefined) ev.message = message ? String(message).slice(0, 120) : null;
+  if (message !== undefined) apply.message = message ? String(message).slice(0, 120) : null;
   if (theme !== undefined) {
     const t = resolveTheme(theme, store.venue(req.venueId).customThemes);
     if (!t) return res.status(400).json({ error: 'Unknown theme' });
-    ev.theme = t;
+    apply.theme = t;
   }
   if (tvId !== undefined) {
-    if (!owned(req, store.tv(tvId))) return res.status(400).json({ error: 'No such TV' });
-    ev.tvId = tvId;
+    if (!owned(req, store.tv(tvId))) return res.status(404).json({ error: 'No such TV' });
+    apply.tvId = tvId;
   }
   if (startsAt !== undefined) {
     const t = Date.parse(startsAt);
     if (!Number.isFinite(t)) return res.status(400).json({ error: 'Bad start time' });
-    ev.startsAt = new Date(t).toISOString();
+    apply.startsAt = new Date(t).toISOString();
   }
   if (durationMin !== undefined) {
     const d = parseFloat(durationMin);
     if (!Number.isFinite(d) || d <= 0) return res.status(400).json({ error: 'Bad duration' });
-    ev.durationMin = Math.min(Math.max(d, 0.2), 240);
+    apply.durationMin = Math.min(Math.max(d, 0.2), 240);
   }
+  Object.assign(ev, apply);
   // If this party is on screen right now, the edit reaches the screen live —
   // including a moved room and a changed end time.
   if (ev.status === 'active') {
@@ -1249,6 +1418,7 @@ app.post('/api/events/:id/start-now', requireAuth, (req, res) => {
   if (!owned(req, ev)) return res.status(404).json({ error: 'No such event' });
   ev.startsAt = new Date().toISOString();
   ev.status = 'scheduled';
+  store.data.events.sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt));
   store.save();
   scheduler.tick();
   pushDashboards();
@@ -1266,8 +1436,14 @@ app.post('/api/events/clear-done', requireAuth, (req, res) => {
 app.get('/api/roller/status', requireAuth, (req, res) => res.json(rollerStatus()));
 
 app.post('/api/roller/sync', requireAuth, async (req, res) => {
+  // The env-var ROLLER credentials belong to ONE venue (the default one).
+  // Any other venue syncing with them would import that venue's bookings —
+  // children's names and party times — into their own list.
+  if (req.venueId !== store.defaultVenueId()) {
+    return res.status(403).json({ error: 'ROLLER is connected per venue — contact support to connect yours' });
+  }
   try {
-    const result = await rollerSync(store, { matchTv, days: 7, venueId: req.venueId }); // this week's parties
+    const result = await rollerSync(store, { matchTv, days: 7, venueId: req.venueId, tz: store.venue(req.venueId).tz || null }); // this week's parties
     if (result.imported || result.updated) pushDashboards();
     res.json({ ok: true, ...result });
   } catch (e) {
@@ -1327,7 +1503,7 @@ app.post('/api/test-bookings/csv', requireAuth, (req, res) => {
         name: parsed.name || 'Birthday Star',
         age: parsed.age,
         message: null,
-        startsAt: new Date(date.y, date.mo - 1, date.d, time.h, time.min, 0, 0).toISOString(),
+        startsAt: zonedTimeToUtc(date.y, date.mo, date.d, time.h, time.min, store.venue(req.venueId).tz || null).toISOString(),
         durationMin: Math.min(durationMin, 240),
         mediaId: null,
         theme: 'party',
@@ -1367,7 +1543,7 @@ app.post('/api/day/start', requireAuth, (req, res) => {
   store.venue(req.venueId).dayStarted = true;
   for (const tv of store.tvsOf(req.venueId)) tv.power = 'on';
   store.save();
-  pushAllTvs();
+  pushVenueTvs(req.venueId);
   pushDashboards();
   res.json({ ok: true });
 });
@@ -1385,12 +1561,15 @@ app.post('/api/day/end', requireAuth, (req, res) => {
     }
   }
   store.save();
-  pushAllTvs();
+  pushVenueTvs(req.venueId);
   pushDashboards();
   res.json({ ok: true });
 });
 
 app.use((err, req, res, next) => {
+  if (err?.type === 'entity.parse.failed') {
+    return res.status(400).json({ error: 'Request body is not valid JSON' });
+  }
   console.error(err);
   res.status(500).json({ error: 'Server error' });
 });
@@ -1399,10 +1578,11 @@ app.use((err, req, res, next) => {
 // WebSockets
 // ---------------------------------------------------------------------------
 const server = http.createServer(app);
-// A 3GB video from a phone on venue Wi-Fi takes far longer than Node's
-// default 5-minute whole-request deadline — disable it (uploads are LAN-only
-// and multer enforces the size limit).
-server.requestTimeout = 0;
+// A 3GB video over venue Wi-Fi takes far longer than Node's default
+// 5-minute whole-request deadline, but this server is public — a fully
+// disabled deadline lets a trickled body hold a connection forever. One
+// hour covers any realistic upload; multer enforces the size limit.
+server.requestTimeout = 60 * 60_000;
 // 64KB is far beyond any legitimate player/dashboard message; the default
 // (100MB) would let any LAN device force huge disk writes and broadcasts.
 const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 64 * 1024 });
@@ -1441,7 +1621,12 @@ wss.on('connection', ws => {
       const nowPlaying = typeof msg.nowPlaying === 'string' ? msg.nowPlaying.slice(0, 120) : null;
       const changed = tv.nowPlaying !== nowPlaying;
       tv.nowPlaying = nowPlaying;
-      store.save();
+      // Persist heartbeats at most once a minute per TV — every 10s status
+      // from every screen was rewriting the whole db.json continuously.
+      if (changed || !tv._seenSavedAt || Date.now() - tv._seenSavedAt > 60_000) {
+        tv._seenSavedAt = Date.now();
+        store.save();
+      }
       // Only re-broadcast when something visible changed — heartbeats alone
       // shouldn't cause 12 TVs × every 10s of dashboard re-renders.
       if (changed) pushDashboards();

@@ -20,7 +20,9 @@
 // Normalized booking row:
 //   { externalRef, startsAt (ISO), durationMin, roomLabel, byline }
 
+import crypto from 'node:crypto';
 import { parseByline } from './byline.js';
+import { dateInZone } from './tz.js';
 
 const BASE = process.env.ROLLER_BASE_URL || 'https://api.roller.app';
 // trim: a pasted trailing space/newline in an env value is the #1 cause
@@ -98,14 +100,15 @@ async function fetchBookingsForDate(date) {
 // Mirrors the test-CSV semantics: parsed name/age with confidence, everything
 // editable afterwards, and existing edits are never clobbered — a booking
 // already imported (matched by externalRef) only has its time/room refreshed.
-export async function rollerSync(store, { matchTv, days = 1, venueId } = {}) {
+export async function rollerSync(store, { matchTv, days = 1, venueId, tz = null } = {}) {
   if (!rollerConfigured()) return { configured: false, imported: 0, updated: 0, errors: [] };
   const errors = [];
   let imported = 0, updated = 0;
   const dates = [];
   for (let i = 0; i < days; i++) {
-    const d = new Date(Date.now() + i * 86_400_000);
-    dates.push(d.toISOString().slice(0, 10));
+    // "Today" as the venue sees it, not as UTC sees it — an evening sync in
+    // Chicago is already "tomorrow" in UTC and would skip today's parties.
+    dates.push(dateInZone(tz, i));
   }
   for (const date of dates) {
     let rows;
