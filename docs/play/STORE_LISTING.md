@@ -148,7 +148,7 @@ Tags (if offered): digital signage, kiosk, business tools.
 | Website | `https://parkcast.onrender.com` |
 | Privacy policy URL | `https://parkcast.onrender.com/privacy` — verify it loads before submitting (service confirmation pending) |
 
-## Release notes for v1.3 (max 500 chars, paste into the release)
+## Release notes for v1.3.1 (max 500 chars, paste into the release)
 
 ```
 • New screens now connect automatically on first launch — the TV goes
@@ -157,4 +157,4 @@ Tags (if offered): digital signage, kiosk, business tools.
 • More resilient playback: branded reconnect screen instead of browser
   errors, automatic recovery after server restarts and renderer crashes.
 ```
-(Adjust to the real 1.2.1 → 1.3 delta before shipping.)
+(Adjust to the real 1.2.1 → 1.3.1 delta before shipping.)

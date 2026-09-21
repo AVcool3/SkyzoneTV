@@ -50,11 +50,15 @@ that personal accounts have, so the path is: fill in app content → submit →
    the questionnaire honestly (venue signage tool, tested on Fire TV/Google
    TV hardware, etc.).
 4. Fill every "App content" section — this is where apps actually get held:
-   - **Privacy policy URL** (required): the server hosts one at
-     `https://YOUR-APP.onrender.com/privacy.html` — edit the contact line
-     in `server/public/privacy.html` first.
-   - **Data safety**: declare *no data collected, no data shared* (true: no
-     analytics, no ads, no personal data; the screen id is not personal).
+   - **Privacy policy URL** (required): `https://parkcast.onrender.com/privacy`
+     (clean route; verify it loads in an incognito window right before
+     submitting).
+   - **Data safety**: declare **Device or other IDs — collected, not
+     shared, purpose: app functionality, encrypted in transit, deletion
+     supported** (the app sends a persistent random screen id plus playback
+     status to the ParkCast server; that is a device-scoped identifier, so
+     "no data collected" would under-declare). No other data types. See
+     docs/play/DATA_SAFETY_AUDIT.md for the full question-by-question walk.
    - **Ads**: none. **Content rating** (IARC): utility, suitable for all.
    - **Target audience**: 18+ / "not designed for children" — it's an
      operator tool; do NOT tick child-directed even though venues host kids.
@@ -66,17 +70,18 @@ that personal accounts have, so the path is: fill in app content → submit →
 
 ## Reviewer access — the #1 avoidable rejection
 
-The app shows a "connect to your server" screen on first launch. A reviewer
-with no server sees an empty app and rejects it. Fix by giving them a live
-demo in the **App access** notes:
+Since v1.3 the app auto-connects to the built-in ParkCast server on first
+launch and shows its 6-digit pairing code immediately — there is no setup
+screen (long-press OK/Select opens the server-address dialog if ever
+needed). The reviewer needs a way to see content actually play, which
+means claiming the screen from a dashboard account.
 
-1. Stand up a **demo server instance** (a second free/starter Render service
-   from the same repo) with `REQUIRE_TV_APPROVAL` left **unset** and a
-   playlist assigned to all TVs — any screen that connects starts playing
-   content immediately, no approval step.
-2. In App access / testing notes, write: "Enter server address
-   `https://parkcast-demo.onrender.com` when prompted. The screen will begin
-   playing demo signage content automatically."
+Follow **docs/play/GOOGLE_REVIEWER_INSTRUCTIONS.md** — it contains the
+owner pre-flight (permanent reviewer dashboard account, a pre-built
+"Reviewer Demo" playlist) and the paste-ready App access text describing
+the claim flow (dashboard → “+ Add screen” → type the code → content
+plays). Reviewer credentials must be permanent, work from any location,
+and require no OTP or manual activation.
 
 ## Honest risk assessment
 
