@@ -5,9 +5,10 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-// Release signing: keystore/upload.jks (kept in this private repo so builds
-// are reproducible anywhere; enroll in Play App Signing so a lost upload key
-// can be reset by Google).
+// Release signing: keystore/upload.jks + keystore.properties live ONLY on
+// the build machine (gitignored — never commit them). Play App Signing
+// escrows the app key, so a lost/compromised upload key is reset through
+// Play Console -> Setup -> App signing; see docs/STORE-PUBLISHING.md.
 val keystoreProps = Properties().apply {
     val f = rootProject.file("keystore/keystore.properties")
     if (f.exists()) f.inputStream().use { load(it) }
@@ -21,8 +22,8 @@ android {
         applicationId = "com.parkcast.player"
         minSdk = 22          // Fire TV Stick (2nd gen+) and all Google TV devices
         targetSdk = 36       // current Google Play target requirement
-        versionCode = 5
-        versionName = "1.3"
+        versionCode = 6
+        versionName = "1.3.1"
         // Fresh installs connect here automatically — no setup screen. The
         // MENU (☰) remote button still opens the address dialog to override
         // it (demos, migrations, a different venue's server).
@@ -35,7 +36,7 @@ android {
         create("release") {
             storeFile = rootProject.file(keystoreProps.getProperty("storeFile", "keystore/upload.jks"))
             storePassword = keystoreProps.getProperty("storePassword", "")
-            keyAlias = keystoreProps.getProperty("keyAlias", "skyzone")
+            keyAlias = keystoreProps.getProperty("keyAlias", "parkcast")
             keyPassword = keystoreProps.getProperty("keyPassword", "")
         }
     }

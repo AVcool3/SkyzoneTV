@@ -7,9 +7,10 @@
          automatically after a power cut (Android blocks it otherwise). -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
-    <!-- TV requirements: no touchscreen needed, leanback capable -->
+    <!-- TV-only app: leanback required so Play targets televisions, and no
+         touchscreen so TV devices are never filtered out. -->
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
-    <uses-feature android:name="android.software.leanback" android:required="false" />
+    <uses-feature android:name="android.software.leanback" android:required="true" />
 
     <application
         android:label="@string/app_name"
