@@ -54,19 +54,34 @@ class MainActivity : AppCompatActivity() {
                 view: WebView, request: WebResourceRequest, error: WebResourceError
             ) {
                 if (request.isForMainFrame) {
-                    // Never show the stock "Webpage not available" browser page:
-                    // paint a branded connecting screen and retry until it's back.
-                    view.loadDataWithBaseURL(
-                        null,
-                        """<!DOCTYPE html><html><body style="margin:0;background:#000;height:100vh;
-                           display:flex;flex-direction:column;align-items:center;justify-content:center;
-                           font-family:sans-serif;color:#fff">
-                           <div style="font-size:8vmin;font-weight:800;letter-spacing:.04em">
-                             PARK<span style="color:#ff6a00">CAST</span></div>
-                           <div style="font-size:3vmin;color:#9aa0b4;margin-top:3vmin">Connecting…</div>
-                           </body></html>""",
-                        "text/html", "utf-8", null
-                    )
+                    showConnecting(view)
+                    view.postDelayed({ view.loadUrl(playerUrl()) }, 5000)
+                }
+            }
+
+            // Never show a stock browser error page: paint a branded
+            // connecting screen and retry until the server is back.
+            private fun showConnecting(view: WebView) {
+                view.loadDataWithBaseURL(
+                    null,
+                    """<!DOCTYPE html><html><body style="margin:0;background:#000;height:100vh;
+                       display:flex;flex-direction:column;align-items:center;justify-content:center;
+                       font-family:sans-serif;color:#fff">
+                       <div style="font-size:8vmin;font-weight:800;letter-spacing:.04em">
+                         PARK<span style="color:#ff6a00">CAST</span></div>
+                       <div style="font-size:3vmin;color:#9aa0b4;margin-top:3vmin">Connecting…</div>
+                       </body></html>""",
+                    "text/html", "utf-8", null
+                )
+            }
+
+            override fun onReceivedHttpError(
+                view: WebView, request: WebResourceRequest, errorResponse: android.webkit.WebResourceResponse
+            ) {
+                // A 502/503 mid-deploy would otherwise sit on screen as a raw
+                // error page until someone power-cycles the TV.
+                if (request.isForMainFrame) {
+                    showConnecting(view)
                     view.postDelayed({ view.loadUrl(playerUrl()) }, 5000)
                 }
             }
@@ -89,9 +104,14 @@ class MainActivity : AppCompatActivity() {
         ensureBootPermission()
     }
 
-    /** Boot auto-start needs "Display over other apps"; ask until granted. */
+    /** Boot auto-start needs "Display over other apps". Fire OS 5 (API 22)
+     *  predates both the permission and the API — skip there. Ask once, not
+     *  on every launch: a public screen must not show a dialog nightly. */
     private fun ensureBootPermission() {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.M) return
         if (Settings.canDrawOverlays(this)) return
+        if (prefs.getBoolean("bootPermAsked", false)) return
+        prefs.edit().putBoolean("bootPermAsked", true).apply()
         AlertDialog.Builder(this)
             .setTitle(getString(R.string.boot_title))
             .setMessage(getString(R.string.boot_message))
@@ -137,6 +157,8 @@ class MainActivity : AppCompatActivity() {
             promptForUrl()
             return true
         }
+        // Kiosk: BACK on the remote must not close the player mid-shift.
+        if (keyCode == KeyEvent.KEYCODE_BACK) return true
         return super.onKeyDown(keyCode, event)
     }
 
