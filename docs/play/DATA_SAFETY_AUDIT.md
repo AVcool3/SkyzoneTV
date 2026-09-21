@@ -25,7 +25,7 @@ boolean, the UUID, and the WebView media cache (PRIVACY_DATA_INVENTORY.md §2).
 The defensible minimal declaration is a single data type: **Device or other IDs**,
 collected, not shared. Two positions were weighed:
 
-- *Declare nothing* (the position currently written in docs/STORE-PUBLISHING.md:56-57):
+- *Declare nothing* (the position an earlier revision of docs/STORE-PUBLISHING.md took):
   the tvId is a random, server-generated, app-scoped UUID naming a signage appliance;
   it relates to no person and Play's form is about *user* data. Many signage apps
   declare nothing. Risk: Play's published definition of "collected" is simply "user
@@ -37,9 +37,9 @@ collected, not shared. Two positions were weighed:
   one row in the form, matches the privacy policy (privacy.html:33-40 already discloses
   the identifier), and immunizes against mismatch review.
 
-If the stricter path is chosen, **docs/STORE-PUBLISHING.md:56-57 is now wrong and must
-not be pasted into the console** (it says "declare no data collected"). Flagged in
-MANUAL VERIFICATION; that file was not modified by this audit.
+Status: docs/STORE-PUBLISHING.md has since been corrected by the release-process audit
+and now instructs exactly this declaration ("Device or other IDs — collected, not
+shared…", STORE-PUBLISHING.md:56-60, verified 2026-09-21). The two documents agree.
 
 ### Per-category answers (the form's full category walk)
 
@@ -55,9 +55,9 @@ MANUAL VERIFICATION; that file was not modified by this audit.
 | Files & docs | **No** | No | Same |
 | Calendar | **No** | No | Nothing exists |
 | Contacts | **No** | No | Nothing exists |
-| App activity | **No** (defensible) | No | The `nowPlaying` heartbeat describes what the *screen* shows, pushed by the same server it reports to; it is service telemetry about the appliance, not user interaction data (no user interacts with the TV app beyond a one-time URL dialog, which is never transmitted as such — MainActivity.kt:137-153 stores it locally only) |
+| App activity | **No** (defensible) | No | The `nowPlaying` heartbeat describes what the *screen* shows, pushed by the same server it reports to; it is service telemetry about the appliance, not user interaction data (no user interacts with the TV app beyond the server-address dialog and the new triple-BACK exit dialog — MainActivity.kt:160-176 stores the URL locally only; the exit flow, 189-222, transmits nothing) |
 | Web browsing | **No** | No | Kiosk WebView pinned to one page; no browsing |
-| App info & performance (crash logs, diagnostics) | **No** | No | No crash reporter, no diagnostics upload (SDK_DATA_AUDIT.md §1); renderer crashes self-heal locally (MainActivity.kt:89-94) |
+| App info & performance (crash logs, diagnostics) | **No** | No | No crash reporter, no diagnostics upload (SDK_DATA_AUDIT.md §1); renderer crashes self-heal locally (MainActivity.kt:94-99) |
 | **Device or other IDs** | **Yes** | **No** | The random screen UUID (player.js:27-28, 160, 185; issued at server/src/index.js:585). Purpose: **App functionality** (letting the venue's dashboard tell its own screens apart). Optional? **No** (required for the app's function). Shared with third parties? **No** — it goes only to the server the operator configures, i.e. the venue's own service (first party / service provider) |
 
 ### "Is all of the user data collected by your app encrypted in transit?"

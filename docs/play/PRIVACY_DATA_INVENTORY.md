@@ -1,24 +1,31 @@
 # ParkCast Player — Privacy Data Inventory (Google Play)
 
-Audit date: 2026-09-21. App: `com.parkcast.player` v1.3 (versionCode 5).
+Audit date: 2026-09-21 (re-verified same day against v1.3.1 / versionCode 6,
+app/build.gradle.kts:25-26, after the TV-review fixes in commits 48d305c and 9693c6f).
 Scope: everything that **persists on the TV device** or **leaves the TV device**, traced
 from the actual code paths: `android-player/app/src/main/java/com/parkcast/player/MainActivity.kt`,
 `BootReceiver.kt`, and the WebView payload `server/public/player/player.js` /
 `server/public/player/index.html` (the app is a kiosk WebView that loads `/player/` from the
-configured server — MainActivity.kt:129-135).
+configured server — MainActivity.kt:152-158).
 
 Every claim below carries a file:line reference to the code that was read for this audit.
 Nothing is inferred from documentation.
+
+Note on v1.3.1: commit 9693c6f added a triple-BACK exit dialog, a long-press-OK route to
+the address dialog, and a 20 s load watchdog (MainActivity.kt:104-117, 178-222). None of
+these touch storage or the network — the data surface below is unchanged; only line
+numbers moved. The zero-`Log.*` finding was re-verified after the change.
 
 ---
 
 ## 1. Architecture in one paragraph (verified)
 
-MainActivity creates a WebView (MainActivity.kt:39), enables JS + DOM storage
-(MainActivity.kt:43-49), and loads `<serverUrl>/player/` (MainActivity.kt:103, 129-135).
+MainActivity creates a WebView (MainActivity.kt:44), enables JS + DOM storage
+(MainActivity.kt:48-54), and loads `<serverUrl>/player/` (MainActivity.kt:126, 152-158).
 The default server is baked in as `BuildConfig.DEFAULT_SERVER_URL =
-"https://parkcast.onrender.com"` (app/build.gradle.kts:29; generated
-BuildConfig.java:13) and seeded into SharedPreferences on first run (MainActivity.kt:100-102).
+"https://parkcast.onrender.com"` (app/build.gradle.kts:30; surfaces as the sole custom
+field in the generated BuildConfig) and seeded into SharedPreferences on first run
+(MainActivity.kt:123-125).
 The page `player/index.html` loads exactly two same-origin scripts, `birthday.js` and
 `player.js` (index.html:154-155), and nothing from any third-party origin. The player's
 only network primitives are one same-origin `fetch('/api/player/register')` (player.js:153)
@@ -34,16 +41,18 @@ by grep over `app/src/main`).
 
 | # | Item | Exact key | Written at | Content | Personal? | Deletable? |
 |---|------|-----------|-----------|---------|-----------|-----------|
-| P1 | Server address | SharedPreferences file `"parkcast"`, key `"serverUrl"` | MainActivity.kt:32 (file), 100-102 (default seed), 149 (operator edit via MENU dialog, 137-153) | URL of the venue's signage server (default `https://parkcast.onrender.com`) | No — infrastructure address entered by the operator | Yes: overwrite via MENU dialog; erased by app uninstall / Clear data |
-| P2 | "Asked for boot permission" flag | SharedPreferences `"parkcast"`, key `"bootPermAsked"` | MainActivity.kt:113-114 | Boolean | No | Erased by uninstall / Clear data |
-| P3 | TV identity | WebView localStorage key `"parkcast.tvId"` (legacy fallback `"skyzone.tvId"`, migrated on read) | player.js:27-28 (read/migrate), 160 (write after register); enabled by `domStorageEnabled = true` (MainActivity.kt:45) | Random UUIDv4 **generated server-side** (`crypto.randomUUID()`, server/src/index.js:585). Not derived from any hardware ID — no MAC, serial, IMEI, ANDROID_ID, or advertising ID is ever read anywhere in the app or page | Pseudonymous device/install identifier; identifies a signage appliance, not a person | Yes: cleared by the app on a server `reregister` push (player.js:191-203); server row deletable from dashboard (index.js:697-709); erased by uninstall / Clear data |
+| P1 | Server address | SharedPreferences file `"parkcast"`, key `"serverUrl"` | MainActivity.kt:34 (file), 123-125 (default seed), 172 (operator edit via the address dialog, 160-176 — opened by MENU or a long-press of OK/Select, 179-181 and 205-211) | URL of the venue's signage server (default `https://parkcast.onrender.com`) | No — infrastructure address entered by the operator | Yes: overwrite via the address dialog; erased by app uninstall / Clear data |
+| P2 | "Asked for boot permission" flag | SharedPreferences `"parkcast"`, key `"bootPermAsked"` | MainActivity.kt:136-137 | Boolean | No | Erased by uninstall / Clear data |
+| P3 | TV identity | WebView localStorage key `"parkcast.tvId"` (legacy fallback `"skyzone.tvId"`, migrated on read) | player.js:27-28 (read/migrate), 160 (write after register); enabled by `domStorageEnabled = true` (MainActivity.kt:50) | Random UUIDv4 **generated server-side** (`crypto.randomUUID()`, server/src/index.js:585). Not derived from any hardware ID — no MAC, serial, IMEI, ANDROID_ID, or advertising ID is ever read anywhere in the app or page | Pseudonymous device/install identifier; identifies a signage appliance, not a person | Yes: cleared by the app on a server `reregister` push (player.js:191-203); server row deletable from dashboard (index.js:697-709); erased by uninstall / Clear data |
 | P4 | WebView HTTP cache of media | WebView cache (standard) | Media URLs served with `maxAge: '365d', immutable` (server/src/index.js:329); loaded into `<video>/<img>` elements (player.js:377, 382, 433-436) | The venue's own uploaded signage media (videos/images) | Content is operator-controlled; could incidentally contain people/party imagery the venue uploaded | Erased by uninstall / Clear data; replaced files get fresh filenames (index.js:135-138) |
 
 Not present (verified): no cookies are ever set by the server (`res.cookie`/`Set-Cookie`
 appears nowhere in `server/src`; the `cookie` entries in package-lock.json are unused
 transitive express deps), no databases, no files written by native code, no
 SharedPreferences beyond the two keys above (MainActivity.kt is the only class touching
-`prefs`; BootReceiver.kt touches no storage).
+`prefs`; BootReceiver.kt touches no storage). The renderer self-heal
+(`onRenderProcessGone` → `recreate()`, MainActivity.kt:94-99) and the connect/retry
+screens (MainActivity.kt:57-117) generate no stored or transmitted data.
 
 ---
 
@@ -95,8 +104,10 @@ the device**; on-device display alone is out of scope, and "shared" means transf
 
 **Case that it is NOT collection (recommended position):**
 1. The names/ages travel *to* the device, not from it. The app gathers nothing from
-   viewers: no camera, microphone, location, contacts, input fields, or sensors exist
-   anywhere in the app (MainActivity.kt has no such API call; the page has no form).
+   viewers: no camera, microphone, location, contacts, or sensors exist anywhere in the
+   app (MainActivity.kt has no such API call; the page has no form — the only native
+   input is the operator's server-address field, MainActivity.kt:160-176, which is
+   stored locally and never transmitted as data).
 2. The one off-device transmission containing a name — `nowPlaying: "Party: Nathan"`
    (player.js:221) — is a verbatim echo of a string fragment the *same server* pushed
    moments earlier (index.js:250). The server learns nothing it did not already hold;

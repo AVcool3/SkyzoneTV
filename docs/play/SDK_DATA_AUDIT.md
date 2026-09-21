@@ -10,11 +10,12 @@ Audit date: 2026-09-21. Sources read: `android-player/app/build.gradle.kts`,
 
 ## 1. Android app Gradle dependencies (the complete list)
 
-`android-player/app/build.gradle.kts:56-59` declares exactly two dependencies:
+`android-player/app/build.gradle.kts:57-60` (re-verified against v1.3.1 / versionCode 6)
+declares exactly two dependencies:
 
 | Dependency | Version | What it is | Data collection verdict |
 |-----------|---------|------------|------------------------|
-| `androidx.appcompat:appcompat` | 1.7.0 | AndroidX base activity/theme compatibility (used for `AppCompatActivity`, MainActivity.kt:20, 29) | **None.** Google's AndroidX support library; no network stack, no analytics, no identifiers. Not on Google's Play SDK Index as a data-collecting SDK |
+| `androidx.appcompat:appcompat` | 1.7.0 | AndroidX base activity/theme compatibility (used for `AppCompatActivity`, MainActivity.kt:20, 31) | **None.** Google's AndroidX support library; no network stack, no analytics, no identifiers. Not on Google's Play SDK Index as a data-collecting SDK |
 | `androidx.webkit:webkit` | 1.11.0 | AndroidX WebView compatibility APIs | **None.** Same as above. (Note: the system WebView itself is a platform component updated via Play — not an app dependency choice) |
 
 Build plugins (`android-player/build.gradle.kts:2-3`): AGP 8.10.1 and Kotlin Android
@@ -30,8 +31,9 @@ Services / Firebase dependency of any kind.** Consequences worth stating on the 
 - Data safety's "Does your app collect data via third-party SDKs?" dimension is a clean
   No.
 - The trade-off: no crash telemetry either. Renderer crashes are self-healed on-device
-  (`onRenderProcessGone` → `recreate()`, MainActivity.kt:89-94) and connection failures
-  self-retry (MainActivity.kt:52-87) — nothing is reported anywhere.
+  (`onRenderProcessGone` → `recreate()`, MainActivity.kt:94-99) and connection failures
+  self-retry, including a 20 s load watchdog (MainActivity.kt:57-117) — nothing is
+  reported anywhere.
 
 ## 2. What the player web page loads (the code the WebView actually runs)
 
@@ -46,7 +48,7 @@ Services / Firebase dependency of any kind.** Consequences worth stating on the 
 
 **Verdict: the player page is fully self-hosted.** With the shipped default server, the
 only network peer the TV ever contacts is `parkcast.onrender.com` (plus whatever server
-the operator explicitly configures via the MENU dialog, MainActivity.kt:137-153). No
+the operator explicitly configures via the address dialog, MainActivity.kt:160-176). No
 CDN, no fonts service, no analytics beacon, no third-party origin of any kind. One
 caveat that is content, not code: an operator's *composed layout* can reference media
 only by `mediaId`, which the server resolves to its own `/media/...` URL at push time
@@ -63,7 +65,7 @@ from arbitrary third-party URLs.
 They are lazy-loaded **only by the dashboard** on first .pptx import
 (`server/public/dashboard/app.js:1700-1701`, `loadScript('vendor/...')`) and referenced
 nowhere in `server/public/player/` (verified by grep). The TV app never loads the
-dashboard page; MainActivity always navigates to `/player/` (MainActivity.kt:133). These
+dashboard page; MainActivity always navigates to `/player/` (MainActivity.kt:156). These
 libraries therefore have **zero bearing on the Play Data safety form** for ParkCast
 Player. For completeness: both run entirely client-side in the operator's browser
 (conversion happens locally; resulting PNGs are uploaded to the venue's own server), and

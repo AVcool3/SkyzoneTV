@@ -27,8 +27,11 @@ password material).
 - `android-player/keystore/` does **not** exist in the working tree (`ls` fails).
 - Root `.gitignore` ignores `android-player/keystore/` with an explicit warning comment
   ("They were tracked before Sept 2026 — treat that key as burned…").
-- `app/build.gradle.kts:11-14` loads `keystore/keystore.properties` only `if (f.exists())`,
-  with empty-string fallbacks (36-39), so CI/other machines build without the secret.
+- `app/build.gradle.kts:12-15` loads `keystore/keystore.properties` only `if (f.exists())`,
+  with empty-string fallbacks (37-41), so CI/other machines build without the secret.
+  (Re-verified after the v1.3.1 changes in 48d305c: the signing block is unchanged in
+  substance; the default `keyAlias` fallback is now `"parkcast"`, line 39 — a name,
+  not a secret.)
 - **History was NOT rewritten**: `git show 7834ba9:android-player/keystore/keystore.properties`
   still returns the passwords, and the `.jks` blob is still retrievable from any clone
   of this repo. Anyone with repo read access holds the upload key and its passwords.
@@ -47,9 +50,11 @@ will ever gain more readers; the key rotation is the real fix.)
   (case-insensitive): **zero matches**.
 - `BuildConfig` (generated `.../buildConfig/release/com/parkcast/player/BuildConfig.java`)
   contains exactly one custom field: `DEFAULT_SERVER_URL = "https://parkcast.onrender.com"`
-  (line 13, defined at app/build.gradle.kts:29). This is a **public** service URL — the
+  (defined at app/build.gradle.kts:30; the checked-in generated copy under `app/build/`
+  predates the v1.3.1 bump but carries the identical field). This is a **public** service URL — the
   same one printed on the privacy policy and typed into TVs — not a secret. Fine to ship.
-- `strings.xml`, `themes.xml`: branding and dialog text only (strings.xml:1-13).
+- `strings.xml`, `themes.xml`: branding and dialog text only (strings.xml:1-18,
+  including the new exit-dialog strings added in 9693c6f — nothing secret).
 - `android-player/gradle.properties`: `org.gradle.jvmargs` and `android.useAndroidX`
   only.
 - The app has **no auth material at all by design**: players are unauthenticated and

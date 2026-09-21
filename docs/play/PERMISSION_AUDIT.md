@@ -1,11 +1,16 @@
 # ParkCast Player — Permission Audit (Google Play)
 
-Audit date: 2026-09-21. Source manifest:
-`android-player/app/src/main/AndroidManifest.xml`. Merged release manifest verified at
-`android-player/app/build/intermediates/merged_manifest/release/processReleaseMainManifest/AndroidManifest.xml`
-(lines 11, 12, 17): the final APK/AAB requests **exactly the three declared permissions**,
-plus one auto-generated androidx artifact (see §5). No library merges in any additional
-runtime-relevant permission.
+Audit date: 2026-09-21 (re-verified same day against v1.3.1 / versionCode 6; the
+manifest's permission block was untouched by commits 48d305c/9693c6f — only the
+leanback `uses-feature` became `required="true"`, AndroidManifest.xml:13, which makes
+the app TV-only on Play and changes nothing about permissions). Source manifest:
+`android-player/app/src/main/AndroidManifest.xml`. The merged release manifest of the
+**last built** artifact (versionCode 5, at
+`android-player/app/build/intermediates/merged_manifest/release/processReleaseMainManifest/AndroidManifest.xml`,
+lines 11, 12, 17) requests **exactly the three declared permissions**, plus one
+auto-generated androidx artifact (see §5); no library merges in any additional
+runtime-relevant permission. Re-confirm on the rebuilt v1.3.1 bundle (see MANUAL
+VERIFICATION in DATA_SAFETY_AUDIT.md).
 
 ---
 
@@ -13,7 +18,7 @@ runtime-relevant permission.
 
 - **Declared:** AndroidManifest.xml:4.
 - **Why needed:** the entire app is a WebView client of the venue's signage server —
-  page load (MainActivity.kt:103), registration fetch (player.js:153), WebSocket
+  page load (MainActivity.kt:126), registration fetch (player.js:153), WebSocket
   (player.js:173), and media streaming (player.js:382, 377). Without it the app does
   nothing at all.
 - **Protection level:** normal. Granted at install, no user prompt.
@@ -54,21 +59,22 @@ runtime-relevant permission.
   - BootReceiver.kt:19-20 — refuses to start the activity unless
     `Settings.canDrawOverlays(context)` is true (skipped below API 23, where the
     permission predates the check and is not needed — comment at 18).
-  - MainActivity.kt:110-127 (`ensureBootPermission`) — asks **once** (flag
-    `bootPermAsked`, 113-114) via a plain dialog, then deep-links the user to the
+  - MainActivity.kt:133-150 (`ensureBootPermission`) — asks **once** (flag
+    `bootPermAsked`, 136-137) via a plain dialog, then deep-links the user to the
     system toggle with `Settings.ACTION_MANAGE_OVERLAY_PERMISSION`
-    (MainActivity.kt:120). The app cannot grant it to itself.
+    (MainActivity.kt:143). The app cannot grant it to itself.
 - **Protection level:** signature|appop — a **special-access** permission. It is *not* a
   runtime permission dialog; the user must flip a switch in system settings, which is
   exactly what the one-time prompt requests. Declining leaves the app fully functional
-  except boot auto-start (dialog offers "Later", MainActivity.kt:125).
+  except boot auto-start (dialog offers "Later", MainActivity.kt:148).
 - **Sensitive per Play?** Yes — SYSTEM_ALERT_WINDOW is on Play's scrutiny list because
   overlay capability can enable tapjacking/phishing on phones. There is currently no
   mandatory Play Console declaration form for it (unlike SMS/QUERY_ALL_PACKAGES), but
   reviewers do question it, especially combined with BOOT_COMPLETED. On TV form factors
   the phishing surface is essentially nil (no touch, no other-app password entry over a
   leanback launcher; `android.hardware.touchscreen` is declared not required,
-  AndroidManifest.xml:11).
+  AndroidManifest.xml:12, and leanback is now required, AndroidManifest.xml:13, so
+  Play distributes only to TVs).
 - **Data-safety implication:** none — the permission grants no data access; nothing about
   it appears in the Data safety form.
 - **Removal analysis:** on API 23+ (every Google TV device Play ships to),
@@ -101,7 +107,7 @@ runtime-relevant permission.
 
 No location, camera, microphone, storage/media read, contacts, phone state, NEARBY_*,
 BLUETOOTH, ACCESS_NETWORK_STATE, WAKE_LOCK (screen-on is done with
-`FLAG_KEEP_SCREEN_ON`, MainActivity.kt:37, plus the JS `navigator.wakeLock` request,
+`FLAG_KEEP_SCREEN_ON`, MainActivity.kt:42, plus the JS `navigator.wakeLock` request,
 player.js:536-539 — neither needs a manifest permission), FOREGROUND_SERVICE, or
 advertising-ID permission (`com.google.android.gms.permission.AD_ID` does **not** appear
 in the merged manifest — consistent with declaring "no ads / no ad ID" in Data safety).
