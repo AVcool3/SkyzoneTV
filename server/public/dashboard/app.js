@@ -39,6 +39,17 @@
     toastTimer = setTimeout(() => t.classList.add('hidden'), 3500);
   }
 
+  // Save buttons lock while their request runs — a double-click must not
+  // create two parties, playlists, or slides.
+  function guardBtn(id, fn) {
+    $(id).addEventListener('click', async () => {
+      const btn = $(id);
+      if (btn.disabled) return;
+      btn.disabled = true;
+      try { await fn(); } finally { btn.disabled = false; }
+    });
+  }
+
   function fmtSize(b) {
     if (b > 1e9) return (b / 1e9).toFixed(2) + ' GB';
     if (b > 1e6) return (b / 1e6).toFixed(1) + ' MB';
@@ -54,16 +65,31 @@
 
   // ---------- auth ----------
   function logout() {
+    // Revoke the session server-side too — forgetting the token in one
+    // browser must not leave it valid everywhere else.
+    if (token) {
+      fetch('/api/logout', { method: 'POST', headers: { Authorization: 'Bearer ' + token } }).catch(() => {});
+    }
     token = null;
+    state = null;
+    me = null;
     localStorage.removeItem('parkcast.token');
     localStorage.removeItem('skyzone.token');
     if (ws) { ws.onclose = null; ws.close(); ws = null; }
-    // A stale toast (or a filled signup form with a typed password) must not
-    // survive into the next person's session on a shared front-desk computer.
+    // Nothing venue-private survives into the next person's session on a
+    // shared front-desk computer: no toast, no typed passwords, no rendered
+    // Team page — and the app reopens on Screens, not wherever this
+    // session happened to be.
     clearTimeout(toastTimer);
     $('toast').classList.add('hidden');
     $('signinForm').reset();
     $('signupForm').reset();
+    $('memberForm').reset();
+    $('memberForm').classList.add('hidden');
+    $('teamList').innerHTML = '';
+    $('teamTab').classList.add('hidden');
+    document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === 'tvs'));
+    document.querySelectorAll('.tabpane').forEach(p => p.classList.toggle('hidden', p.id !== 'tab-tvs'));
     showAuthTab('signin');
     $('app').classList.add('hidden');
     $('login').classList.remove('hidden');
@@ -81,14 +107,18 @@
   $('tabSignup').addEventListener('click', () => showAuthTab('signup'));
   if (location.hash === '#signup') showAuthTab('signup');
 
+  let authBusy = false;
   async function authenticate(path, body) {
+    if (authBusy) return; // double-submitting signup would just error on itself
+    authBusy = true;
     $('loginError').textContent = '';
     try {
       const res = await fetch(path, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       });
-      const data = await res.json();
+      // A proxy 502 hands back HTML, not JSON — show something human.
+      const data = await res.json().catch(() => ({ error: 'Server unavailable — try again in a moment' }));
       if (!res.ok) throw new Error(data.error || 'Something went wrong');
       token = data.token;
       localStorage.setItem('parkcast.token', token);
@@ -98,6 +128,8 @@
       enterApp();
     } catch (err) {
       $('loginError').textContent = err.message;
+    } finally {
+      authBusy = false;
     }
   }
   $('signinForm').addEventListener('submit', e => {
@@ -112,6 +144,7 @@
     });
   });
 
+  let bootRetry = null;
   async function enterApp() {
     $('login').classList.add('hidden');
     $('app').classList.remove('hidden');
@@ -119,7 +152,16 @@
     try {
       state = await api('/api/state');
       render();
-    } catch { return; }
+    } catch {
+      // Server restarting mid-deploy or a network blip: keep trying instead
+      // of stranding the operator on a blank shell. (A 401 already ran
+      // logout() inside api(), so token is null and we stop.)
+      if (!token) return;
+      toast('Cannot reach the server — retrying…', true);
+      clearTimeout(bootRetry);
+      bootRetry = setTimeout(enterApp, 4000);
+      return;
+    }
     // The Team page (owner portal) only exists for owners.
     try { me = await api('/api/me'); } catch { me = null; }
     $('teamTab').classList.toggle('hidden', !(me && me.role === 'owner'));
@@ -178,6 +220,9 @@
   function render() {
     if (!state) return;
     if (renderHeld) { renderPending = true; return; }
+    // Live pushes arrive every few seconds in a busy venue; rebuilding the
+    // lists would snap an open ⋯ menu shut under the operator's cursor.
+    if (document.querySelector('.kebab .menu:not(.hidden)')) { renderPending = true; return; }
     $('tvCount').textContent = state.tvs.length;
     $('mediaCount').textContent = state.media.length;
     $('playlistCount').textContent = (state.playlists || []).length;
@@ -312,8 +357,9 @@
 
       const nameInput = card.querySelector('.tv-name');
       nameInput.addEventListener('change', () => {
+        if (!nameInput.value.trim()) { nameInput.value = tv.name; return; } // empty rename is a no-op, not a fake "Renamed"
         api(`/api/tvs/${tv.id}`, { method: 'PATCH', body: JSON.stringify({ name: nameInput.value }) })
-          .then(() => toast('Renamed')).catch(e => toast(e.message, true));
+          .then(() => toast('Renamed')).catch(e => { nameInput.value = tv.name; toast(e.message, true); });
       });
       nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') nameInput.blur(); });
 
@@ -462,9 +508,11 @@
       });
 
       const label = card.querySelector('.m-label');
-      label.addEventListener('change', () =>
+      label.addEventListener('change', () => {
+        if (!label.value.trim()) { label.value = m.label; return; }
         api(`/api/media/${m.id}`, { method: 'PATCH', body: JSON.stringify({ label: label.value }) })
-          .then(() => toast('Renamed')).catch(e => toast(e.message, true)));
+          .then(() => toast('Renamed')).catch(e => toast(e.message, true));
+      });
       label.addEventListener('keydown', e => { if (e.key === 'Enter') label.blur(); });
 
       const folderSel = card.querySelector('.m-folder');
@@ -535,9 +583,11 @@
           <button class="btn small" data-act="edit">Edit</button>
         </div>`;
       const label = card.querySelector('.m-label');
-      label.addEventListener('change', () =>
+      label.addEventListener('change', () => {
+        if (!label.value.trim()) { label.value = m.label; return; }
         api(`/api/media/${m.id}`, { method: 'PATCH', body: JSON.stringify({ label: label.value }) })
-          .then(() => toast('Renamed')).catch(e => toast(e.message, true)));
+          .then(() => toast('Renamed')).catch(e => toast(e.message, true));
+      });
       label.addEventListener('keydown', e => { if (e.key === 'Enter') label.blur(); });
       card.querySelector('[data-act="edit"]').addEventListener('click', () =>
         m.type === 'comp' ? openCompModal(m) : openSlideModal(m));
@@ -547,6 +597,8 @@
 
   function closeAllMenus() {
     document.querySelectorAll('.kebab .menu').forEach(mn => mn.classList.add('hidden'));
+    // A state push held back while a menu was open renders now.
+    if (renderPending) { renderPending = false; setTimeout(render, 50); }
   }
   document.addEventListener('click', closeAllMenus);
 
@@ -726,9 +778,14 @@
           if (Math.abs(e.y + e.h / 2 - 50) < 1.2) e.y = 50 - e.h / 2;
           d.style.left = e.x + '%'; d.style.top = e.y + '%';
         };
-        const up = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); };
+        const up = () => {
+          removeEventListener('pointermove', move);
+          removeEventListener('pointerup', up);
+          removeEventListener('pointercancel', up);
+        };
         addEventListener('pointermove', move);
         addEventListener('pointerup', up);
+        addEventListener('pointercancel', up);
         ev.preventDefault();
         cnv.focus();
       });
@@ -753,9 +810,14 @@
             d.style.left = e.x + '%'; d.style.top = e.y + '%';
             d.style.width = e.w + '%'; d.style.height = e.h + '%';
           };
-          const up = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); };
+          const up = () => {
+            removeEventListener('pointermove', move);
+            removeEventListener('pointerup', up);
+            removeEventListener('pointercancel', up);
+          };
           addEventListener('pointermove', move);
           addEventListener('pointerup', up);
+          addEventListener('pointercancel', up);
         });
         d.appendChild(rz);
       }
@@ -979,7 +1041,7 @@
   }
   $('addCompBtn').addEventListener('click', () => openCompModal(null));
   $('compCancel').addEventListener('click', () => $('compModal').classList.add('hidden'));
-  $('compSave').addEventListener('click', async () => {
+  guardBtn('compSave', async () => {
     try {
       await api('/api/comps', {
         method: 'POST',
@@ -1034,7 +1096,7 @@
   }
   $('addSlideBtn').addEventListener('click', () => openSlideModal(null));
   $('slideCancel').addEventListener('click', () => $('slideModal').classList.add('hidden'));
-  $('slideSave').addEventListener('click', async () => {
+  guardBtn('slideSave', async () => {
     try {
       await api('/api/slides', {
         method: 'POST',
@@ -1251,7 +1313,7 @@
   });
   $('plMediaClose').addEventListener('click', () => $('plMediaModal').classList.add('hidden'));
 
-  $('playlistSave').addEventListener('click', async () => {
+  guardBtn('playlistSave', async () => {
     try {
       await api('/api/playlists', {
         method: 'POST',
@@ -1401,27 +1463,38 @@
     $('contentSave').onclick = async () => {
       const targets = [tv.id, ...extraTvs];
       $('contentModal').classList.add('hidden');
-      try {
+      // The screen-fit change rides along with the chosen action — never
+      // ahead of it, so cancelling the media picker cancels everything.
+      const applyFit = async () => {
         for (const id of targets) {
           await api(`/api/tvs/${id}`, { method: 'PATCH', body: JSON.stringify({ fit }) });
         }
+      };
+      try {
         if (choice === 'blank') {
+          await applyFit();
           for (const id of targets) {
             await api(`/api/tvs/${id}/assign`, { method: 'POST', body: JSON.stringify({ mediaIds: [] }) });
           }
           toast(`Idle screen on ${targets.length} TV${targets.length === 1 ? '' : 's'}`);
         } else if (choice === 'custom') {
           openPicker(`Custom selection for ${targets.length} TV${targets.length === 1 ? '' : 's'}`, tv.assignedMediaIds, async ids => {
-            for (const id of targets) {
-              await api(`/api/tvs/${id}/assign`, { method: 'POST', body: JSON.stringify({ mediaIds: ids }) });
-            }
-            toast(`Custom selection applied to ${targets.length} TV${targets.length === 1 ? '' : 's'}`);
+            try {
+              await applyFit();
+              for (const id of targets) {
+                await api(`/api/tvs/${id}/assign`, { method: 'POST', body: JSON.stringify({ mediaIds: ids }) });
+              }
+              toast(`Custom selection applied to ${targets.length} TV${targets.length === 1 ? '' : 's'}`);
+            } catch (e) { toast(e.message, true); }
           });
-        } else if (choice !== 'new') {
-          for (const id of targets) {
-            await api(`/api/tvs/${id}/playlist`, { method: 'POST', body: JSON.stringify({ playlistId: choice }) });
+        } else {
+          await applyFit();
+          if (choice !== 'new') {
+            for (const id of targets) {
+              await api(`/api/tvs/${id}/playlist`, { method: 'POST', body: JSON.stringify({ playlistId: choice }) });
+            }
+            toast(`Playlist applied to ${targets.length} TV${targets.length === 1 ? '' : 's'}`);
           }
-          toast(`Playlist applied to ${targets.length} TV${targets.length === 1 ? '' : 's'}`);
         }
       } catch (e) { toast(e.message, true); }
     };
@@ -1486,7 +1559,7 @@
   }
   $('addThemeBtn').addEventListener('click', () => openThemeModal(null));
   $('themeCancel').addEventListener('click', () => $('themeModal').classList.add('hidden'));
-  $('themeSave').addEventListener('click', async () => {
+  guardBtn('themeSave', async () => {
     const elements = [];
     if ($('thSparkles').checked) elements.push('sparkles');
     if ($('thBalloons').checked) elements.push('balloons');
@@ -1534,7 +1607,7 @@
         <input type="checkbox" ${order.includes(m.id) ? 'checked' : ''}>
         <span class="order"></span>
         <span class="p-label">${esc(m.label)}</span>
-        <span class="hint">${fmtSize(m.size)}</span>`;
+        <span class="hint">${m.type === 'slide' ? 'text slide' : m.type === 'comp' ? 'design' : fmtSize(m.size)}</span>`;
       const cb = item.querySelector('input');
       cb.addEventListener('change', () => {
         if (cb.checked) order.push(m.id);
@@ -1604,12 +1677,24 @@
     return loadedScripts[src];
   }
 
+  // Decks convert one at a time; extra drops queue up instead of vanishing.
+  const pptxQueue = [];
   let pptxBusy = false;
   async function importPptx(file) {
-    if (pptxBusy) { toast('Finishing the previous deck first — try again in a moment', true); return; }
+    pptxQueue.push(file);
+    if (pptxBusy) { toast(`"${file.name}" queued — decks convert one at a time`); return; }
     pptxBusy = true;
+    try {
+      while (pptxQueue.length) await importOnePptx(pptxQueue.shift());
+    } finally {
+      pptxBusy = false;
+    }
+  }
+
+  async function importOnePptx(file) {
     const base = file.name.replace(/\.pptx$/i, '').trim().slice(0, 50) || 'Deck';
     const stage = document.createElement('div');
+    const uploaded = []; // rolled back on failure so retries never duplicate
     try {
       toast(`Converting "${base}"…`);
       await loadScript('vendor/pptx-preview.umd.js');
@@ -1629,7 +1714,6 @@
       try { folderId = (await api('/api/folders', { method: 'POST', body: JSON.stringify({ name: base }) })).folder.id; }
       catch { folderId = (state.folders || []).find(f => f.name.toLowerCase() === base.toLowerCase())?.id || null; }
 
-      const mediaIds = [];
       for (let i = 0; i < slides.length; i++) {
         toast(`Converting "${base}" — slide ${i + 1} of ${slides.length}`);
         const canvas = await html2canvas(slides[i], { backgroundColor: '#ffffff', scale: 1.5 });
@@ -1638,19 +1722,25 @@
         if (folderId) form.append('folderId', folderId);
         form.append('file', blob, `${base} - slide ${String(i + 1).padStart(2, '0')}.png`);
         const res = await api('/api/media', { method: 'POST', body: form });
-        mediaIds.push(res.media.id);
+        uploaded.push(res.media.id);
       }
 
-      // A ready-to-assign playlist of the whole deck, in order.
+      // Re-importing a deck UPDATES its playlist in place (screens using it
+      // switch to the new slides); a first import creates it. Old slide
+      // images stay in the folder until deleted — they may be on screens.
+      const existing = (state.playlists || []).find(p => p.name.toLowerCase() === base.toLowerCase());
       await api('/api/playlists', { method: 'POST', body: JSON.stringify({
-        name: base, items: mediaIds.map(id => ({ mediaId: id, enabled: true }))
+        ...(existing ? { id: existing.id } : {}),
+        name: existing ? existing.name : base,
+        items: uploaded.map(id => ({ mediaId: id, enabled: true }))
       }) });
-      toast(`"${base}" imported — ${mediaIds.length} slides, playlist ready to put on screens`);
+      toast(`"${base}" imported — ${uploaded.length} slides, playlist ${existing ? 'updated' : 'ready to put on screens'}`);
     } catch (err) {
-      toast(`Deck import failed: ${err.message}`, true);
+      // Take the partial slides back out so the library isn't polluted.
+      for (const id of uploaded) { try { await api(`/api/media/${id}`, { method: 'DELETE' }); } catch {} }
+      if (err.message !== 'Logged out') toast(`Deck import failed: ${err.message}`, true);
     } finally {
       stage.remove();
-      pptxBusy = false;
     }
   }
 
@@ -1782,7 +1872,7 @@
     $('eventModal').classList.remove('hidden');
   });
   $('eventCancel').addEventListener('click', () => $('eventModal').classList.add('hidden'));
-  $('eventSave').addEventListener('click', async () => {
+  guardBtn('eventSave', async () => {
     try {
       await api('/api/events', {
         method: 'POST',
@@ -1838,6 +1928,8 @@
     try { members = (await api('/api/team')).members; }
     catch (err) { toast(err.message, true); return; }
     $('teamCount').textContent = members.length;
+    $('vsName').value = state?.settings?.venueName || '';
+    $('vsTz').value = state?.settings?.tz || '';
     const list = $('teamList');
     list.innerHTML = '';
     for (const m of members) {
@@ -1894,6 +1986,27 @@
     }
   }
 
+  $('venueForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    try {
+      await api('/api/settings', { method: 'POST', body: JSON.stringify({
+        venueName: $('vsName').value, tz: $('vsTz').value
+      }) });
+      toast('Venue saved');
+    } catch (err) { toast(err.message, true); }
+  });
+
+  $('changePwBtn').addEventListener('click', async () => {
+    const current = prompt('Current password:');
+    if (!current) return;
+    const next = prompt('New password (8+ characters):');
+    if (!next) return;
+    try {
+      await api('/api/me/password', { method: 'POST', body: JSON.stringify({ current, next }) });
+      toast('Password changed — your other devices are signed out');
+    } catch (err) { toast(err.message, true); }
+  });
+
   $('addMemberBtn').addEventListener('click', () => {
     $('memberForm').classList.toggle('hidden');
     if (!$('memberForm').classList.contains('hidden')) $('tmName').focus();
@@ -1904,6 +2017,9 @@
   });
   $('memberForm').addEventListener('submit', async e => {
     e.preventDefault();
+    const sb = e.target.querySelector('[type=submit]');
+    if (sb.disabled) return;
+    sb.disabled = true;
     try {
       const r = await api('/api/team', { method: 'POST', body: JSON.stringify({
         name: $('tmName').value, email: $('tmEmail').value,
@@ -1914,6 +2030,7 @@
       toast(`${r.member.email} can sign in now`);
       renderTeam();
     } catch (err) { toast(err.message, true); }
+    finally { sb.disabled = false; }
   });
 
   $('claimBtn').addEventListener('click', () => {
@@ -1922,6 +2039,17 @@
     api('/api/tvs/claim', { method: 'POST', body: JSON.stringify({ code }) })
       .then(r => toast(`Screen added as ${r.tv.name} — rename it after its room`))
       .catch(e => toast(e.message, true));
+  });
+
+  // Escape closes the topmost open modal through its own Cancel/Close
+  // control (so cleanup like pausing the preview video still runs). The
+  // full-screen designer is exempt — unsaved layouts close via its buttons.
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    const open = [...document.querySelectorAll('.modal:not(.hidden)')].pop();
+    if (!open || open.querySelector('.modal-card.designer')) return;
+    const closer = open.querySelector('[id$="Cancel"], [id$="Close"]');
+    if (closer) closer.click(); else open.classList.add('hidden');
   });
 
   // ---------- boot ----------

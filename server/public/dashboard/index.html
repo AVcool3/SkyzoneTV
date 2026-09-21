@@ -78,7 +78,7 @@
     <div class="pane-tools">
       <button id="claimBtn" class="btn primary">+ Add screen</button>
       <button id="assignAllBtn" class="btn">Choose media for ALL screens…</button>
-      <span class="hint">Tip: open <code id="playerUrl"></code> on a TV to pair it — it appears here automatically.</span>
+      <span class="hint">Open <code id="playerUrl"></code> on a TV, then press + Add screen and type the code it shows.</span>
     </div>
     <div id="tvGrid" class="tv-grid"></div>
   </section>
@@ -168,6 +168,23 @@
       <button type="button" id="tmCancel" class="btn ghost">Cancel</button>
     </form>
     <div id="teamList" class="team-list"></div>
+
+    <h4 class="theme-h" style="margin-top:30px">Venue</h4>
+    <form id="venueForm" class="member-form">
+      <input id="vsName" placeholder="Venue name" maxlength="60" required>
+      <select id="vsTz">
+        <option value="">Timezone: server default</option>
+        <option value="America/Chicago">Central (Chicago)</option>
+        <option value="America/New_York">Eastern (New York)</option>
+        <option value="America/Denver">Mountain (Denver)</option>
+        <option value="America/Phoenix">Arizona (Phoenix)</option>
+        <option value="America/Los_Angeles">Pacific (Los Angeles)</option>
+        <option value="UTC">UTC</option>
+      </select>
+      <button type="submit" class="btn">Save venue</button>
+    </form>
+    <p class="hint">The venue name shows on your screens; imported party times use this timezone.</p>
+    <button id="changePwBtn" class="btn ghost" style="margin-top:10px">Change my password</button>
   </section>
 
   <!-- Parties (bookings feed the takeovers; every parsed field stays editable) -->
@@ -414,8 +431,8 @@
   </div>
 </div>
 
-<div id="toast" class="toast hidden"></div>
-<div id="dropHint" class="drop-hint hidden">Drop videos or photos to upload</div>
+<div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+<div id="dropHint" class="drop-hint hidden">Drop videos, photos, or PowerPoint decks to upload</div>
 
 <script src="app.js"></script>
 </body>

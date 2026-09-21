@@ -39,7 +39,6 @@ code { background: var(--panel2); padding: 2px 6px; border-radius: 6px; font-siz
   padding: 36px 32px; width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 16px;
   text-align: center; box-shadow: 0 10px 34px rgba(24, 24, 27, 0.07);
 }
-.login-sub { color: var(--muted); margin-top: -10px; }
 input, select {
   background: var(--panel); color: var(--text); border: 1px solid var(--border-strong);
   border-radius: 8px; padding: 10px 12px; font-size: 15px; width: 100%;
@@ -150,7 +149,6 @@ input:focus, select:focus { outline: 2px solid var(--blue); outline-offset: -1px
 .media-card .m-label:focus { background: var(--panel2); outline: 1px solid var(--blue); }
 .m-meta { color: var(--muted); font-size: 12px; }
 .m-actions { display: flex; gap: 6px; flex-wrap: wrap; }
-.m-bday { font-size: 12px; color: var(--accent-strong); font-weight: 700; }
 
 .upload-progress { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .upload-progress .bar { flex: 1; height: 8px; background: var(--panel2); border-radius: 999px; overflow: hidden; }
@@ -211,8 +209,6 @@ tr:last-child td { border-bottom: none; }
   background: rgba(24, 24, 27, 0.8); color: #fff; padding: 2px 8px; border-radius: 999px;
 }
 .thumb-wrap { position: relative; }
-.m-duration { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
-.m-duration input { width: 70px; padding: 5px 8px; }
 
 .pl-card {
   background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
@@ -253,13 +249,6 @@ tr:last-child td { border-bottom: none; }
 }
 .switch input:checked + .knob { background: var(--accent); }
 .switch input:checked + .knob::after { left: 19px; }
-.modal-card label.radio-row, .radio-row {
-  display: flex; flex-direction: row; align-items: center; gap: 10px; background: var(--panel2);
-  border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; cursor: pointer;
-  font-size: 14px; color: var(--text);
-}
-.radio-row input { width: auto; }
-.radio-row .r-label { flex: 1; font-weight: 600; }
 
 /* ---- Slides ---- */
 .slide-preview, .slide-thumb {
@@ -466,7 +455,6 @@ select.ev-theme { width: auto; min-width: 112px; }
 .designer-foot .foot-field { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); }
 .designer-foot .foot-field input { width: auto; }
 #compLabel { max-width: 190px; }
-#compDur { width: 72px; }
 @media (max-width: 760px) {
   .designer-body { flex-direction: column; }
   .designer-panel { width: 100%; max-height: none; }

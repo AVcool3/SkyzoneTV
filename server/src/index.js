@@ -251,6 +251,9 @@ function playerState(tv) {
       message: tv.override.message || `Happy Birthday, ${tv.override.name}!`,
       mediaUrl: m ? fileUrl(m) : null,
       endsAt: tv.override.endsAt,
+      // Remaining time computed HERE: a TV whose clock runs fast would end
+      // the party early if it compared endsAt against its own Date.now().
+      msRemaining: Math.max(0, Date.parse(tv.override.endsAt) - Date.now()),
       theme,
       themeSpec
     };

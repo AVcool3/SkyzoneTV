@@ -22,8 +22,11 @@
 
   // Read the current key, falling back to (and migrating) the pre-rename
   // key so no installed TV loses its identity over the rebrand.
-  let tvId = localStorage.getItem('parkcast.tvId') || localStorage.getItem('skyzone.tvId') || null;
-  if (tvId) { try { localStorage.setItem('parkcast.tvId', tvId); } catch {} }
+  let tvId = null;
+  try {
+    tvId = localStorage.getItem('parkcast.tvId') || localStorage.getItem('skyzone.tvId') || null;
+    if (tvId) localStorage.setItem('parkcast.tvId', tvId);
+  } catch {} // blocked storage: the TV still boots, it just re-pairs each launch
   let ws = null;
   let reconnectDelay = 1000;
   let state = null;           // last state from server
@@ -40,6 +43,7 @@
   let overrideTimer = null;
   let errorStreak = 0;        // consecutive unplayable items
   let errorRetryTimer = null;
+  let videoRetryTimer = null; // pending play() retry for the active video
 
   function clearSlotHandlers(slot) {
     slot.video.onended = slot.video.onerror = slot.video.onplaying = null;
@@ -153,7 +157,7 @@
       });
       const data = await res.json();
       tvId = data.tvId;
-      localStorage.setItem('parkcast.tvId', tvId);
+      try { localStorage.setItem('parkcast.tvId', tvId); } catch {}
       idleName.textContent = data.name;
       return true;
     } catch {
@@ -162,11 +166,21 @@
   }
 
   // --- websocket ---------------------------------------------------------
+  let stableTimer = null;
   function connect() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    ws = new WebSocket(`${proto}://${location.host}/ws`);
+    try {
+      ws = new WebSocket(`${proto}://${location.host}/ws`);
+    } catch {
+      setTimeout(connect, reconnectDelay);
+      reconnectDelay = Math.min(reconnectDelay * 1.7, 15000);
+      return;
+    }
     ws.onopen = () => {
-      reconnectDelay = 1000;
+      // The backoff only resets once the link has proven stable — a whole
+      // fleet reconnecting to a crash-looping server must keep backing off.
+      clearTimeout(stableTimer);
+      stableTimer = setTimeout(() => { reconnectDelay = 1000; }, 30000);
       netdot.classList.remove('visible');
       ws.send(JSON.stringify({ type: 'hello', role: 'player', tvId }));
     };
@@ -175,17 +189,26 @@
       try { msg = JSON.parse(e.data); } catch { return; }
       if (msg.type === 'state') applyState(msg);
       else if (msg.type === 'reregister') {
-        localStorage.removeItem('parkcast.tvId');
-        localStorage.removeItem('skyzone.tvId');
+        try {
+          localStorage.removeItem('parkcast.tvId');
+          localStorage.removeItem('skyzone.tvId');
+        } catch {}
         tvId = null;
-        register().then(ok => { if (ok) ws.send(JSON.stringify({ type: 'hello', role: 'player', tvId })); });
+        const attempt = () => register().then(ok => {
+          if (!ws || ws.readyState !== WebSocket.OPEN) return; // reconnect will redo the hello
+          if (ok) ws.send(JSON.stringify({ type: 'hello', role: 'player', tvId }));
+          else setTimeout(attempt, 5000);
+        });
+        attempt();
       }
     };
     ws.onclose = () => {
+      clearTimeout(stableTimer);
       netdot.classList.add('visible');
       idleConn.textContent = 'Reconnecting to server…';
       idleConn.classList.add('bad');
-      setTimeout(connect, reconnectDelay);
+      // Jitter spreads a venue's screens out instead of stampeding together.
+      setTimeout(connect, reconnectDelay * (1 + Math.random() * 0.4));
       reconnectDelay = Math.min(reconnectDelay * 1.7, 15000);
     };
     ws.onerror = () => ws.close();
@@ -247,7 +270,7 @@
       idleName.textContent = msg.pairCode ? `Code ${msg.pairCode}` : (msg.tv && msg.tv.name) || '';
       idleConn.textContent = '';
       document.getElementById('idleHint').textContent =
-        'Waiting for approval — open the dashboard, find this code on the Screens page, and press Approve.';
+        'Open your ParkCast dashboard, press "+ Add screen", and type in this code.';
       reportStatus();
       return;
     }
@@ -298,8 +321,9 @@
     } else if (item.type === 'image') {
       if (activeSlot.image.src) {
         activeSlot.image.classList.add('visible');
-        clearTimeout(imageTimer);
-        if (playlist.length > 1) imageTimer = setTimeout(next, (item.durationSec || 8) * 1000);
+        // Keep the running clock: re-arming here on every push would let a
+        // busy dashboard hold one image on screen indefinitely.
+        if (playlist.length > 1 && !imageTimer) imageTimer = setTimeout(next, (item.durationSec || 8) * 1000);
       } else startCurrent();
     } else {
       if (activeSlot.video.src) {
@@ -314,6 +338,8 @@
     if (!item) { show('idle'); return; }
     clearTimeout(errorRetryTimer);
     errorRetryTimer = null;
+    clearTimeout(videoRetryTimer);
+    videoRetryTimer = null;
     clearTimeout(imageTimer);
     imageTimer = null;
     // The standby slot keeps handlers from its last active stint; a preload
@@ -322,6 +348,7 @@
     clearSlotHandlers(activeSlot);
     hideSlot(standbySlot);
     standbySlot.video.pause();
+    stopCompVideos(standbySlot.slide); // a design's video must not keep decoding hidden
     const slot = activeSlot;
 
     if (item.type === 'slide' || item.type === 'comp') {
@@ -355,13 +382,21 @@
       slot.video.src = item.url;
       slot.video.loop = playlist.length === 1;
       slot.video.classList.add('visible');
+      // A failing file can report through BOTH onerror and the play() chain;
+      // it must only count once or a single bad file trips the all-failed
+      // breaker and blanks a healthy loop.
+      let failed = false;
+      const failOnce = () => { if (!failed) { failed = true; onItemError(); } };
       slot.video.play().catch(() => {
         // Autoplay refused or file unreadable: retry shortly, skip after repeated failures.
-        setTimeout(() => slot.video.play().catch(() => onItemError()), 2000);
+        videoRetryTimer = setTimeout(() => {
+          if (slot !== activeSlot || playlist[current] !== item) return; // moved on
+          slot.video.play().catch(failOnce);
+        }, 2000);
       });
       slot.video.onplaying = () => { errorStreak = 0; };
       slot.video.onended = next;
-      slot.video.onerror = onItemError;
+      slot.video.onerror = failOnce;
     }
     preloadNext();
     reportStatus();
@@ -392,6 +427,7 @@
   function preloadNext() {
     if (playlist.length < 2) return;
     const nextItem = playlist[(current + 1) % playlist.length];
+    if (!nextItem.url) return; // slides/designs render live — nothing to fetch
     const abs = new URL(nextItem.url, location.href).href;
     if (nextItem.type === 'image') {
       if (standbySlot.image.src !== abs) standbySlot.image.src = nextItem.url;
@@ -482,7 +518,9 @@
     // Local fallback: if the server connection is down when the event should
     // end, clear it ourselves so a TV never gets stuck on a birthday screen.
     clearTimeout(overrideTimer);
-    const msLeft = Date.parse(o.endsAt) - Date.now();
+    // msRemaining is computed on the server at push time, so a TV whose
+    // clock runs minutes fast no longer cuts the birthday short.
+    const msLeft = Number.isFinite(o.msRemaining) ? o.msRemaining : Date.parse(o.endsAt) - Date.now();
     if (Number.isFinite(msLeft)) {
       overrideTimer = setTimeout(() => {
         if (state) { state.override = null; applyState(state); }
