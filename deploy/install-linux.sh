@@ -18,16 +18,24 @@ REPO_DIR="$(dirname "$SCRIPT_DIR")"
 SERVER_DIR="$REPO_DIR/server"
 RUN_USER="${SUDO_USER:-root}"
 
-if ! command -v node >/dev/null 2>&1; then
-  echo "Installing Node.js…"
+# Distro apt repos often carry a Node far older than we need (Ubuntu 22.04
+# ships v12), so install from NodeSource when node is missing or too old.
+need_node() {
+  ! command -v node >/dev/null 2>&1 ||
+    [ "$(node -e 'console.log(process.versions.node.split(".")[0])')" -lt 20 ]
+}
+if need_node; then
+  echo "Installing Node.js 22 (NodeSource)…"
   apt-get update -qq
-  apt-get install -y nodejs npm
+  apt-get install -y curl ca-certificates
+  curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+  apt-get install -y nodejs
 fi
 
 NODE_BIN="$(command -v node)"
 NODE_MAJOR="$($NODE_BIN -e 'console.log(process.versions.node.split(".")[0])')"
-if [ "$NODE_MAJOR" -lt 18 ]; then
-  echo "Node.js 18+ required (found $($NODE_BIN --version)). Install a newer Node and re-run." >&2
+if [ "$NODE_MAJOR" -lt 20 ]; then
+  echo "Node.js 20+ required (found $($NODE_BIN --version)). Install a newer Node and re-run." >&2
   exit 1
 fi
 

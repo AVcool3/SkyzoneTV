@@ -67,8 +67,10 @@ On the mini PC (Windows or Linux both work):
    your router so this address never changes — this is important, the TVs
    remember it.)
 
-   Also check the mini PC's **clock and timezone** are set to Chicago time —
-   the CSV's party times are interpreted in the server's local timezone.
+   Also check the mini PC's **clock** is accurate. Party times from CSVs
+   and booking sync are interpreted in the venue's timezone — set it in the
+   dashboard under **Team → Venue** (cloud deploys also set a server-wide
+   `TZ` fallback in render.yaml).
 5. Open the dashboard address on your phone (same Wi-Fi) and log in.
 
 ### Make the server start on boot
@@ -204,9 +206,9 @@ Export or type the day's parties into a CSV
 (see [CSV-FORMAT.md](CSV-FORMAT.md), sample in the dashboard):
 
 ```csv
-date,time,tv,name,message,duration,media
-2026-08-13,10:30,Room 1,Aiden,,5,
-2026-08-13,11:00,Room 2,Maya,Happy 8th Birthday Maya!,5,Birthday Loop
+date,time,tv,name,message,duration,media,theme
+2026-08-13,10:30,Room 1,Aiden,,5,,ninja
+2026-08-13,11:00,Room 2,Maya,Happy 8th Birthday Maya!,5,Birthday Loop,
 ```
 
 Dashboard → **Events** tab → **Upload events CSV**. The dashboard confirms how

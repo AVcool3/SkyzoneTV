@@ -6,3 +6,8 @@ android-player/.gradle/
 android-player/build/
 android-player/app/build/
 android-player/local.properties
+
+# Signing secrets: NEVER commit the upload keystore or its passwords.
+# (They were tracked before Sept 2026 — treat that key as burned and use
+# Play App Signing's upload-key reset; see docs/STORE-PUBLISHING.md.)
+android-player/keystore/

@@ -10,10 +10,15 @@ bundleRelease`:
 - **`store-assets/`** — icon (512×512), feature graphic (1024×500). Use the
   player screenshots from a running screen for listing screenshots (16:9).
 - Signing key: `android-player/keystore/upload.jks` (passwords in
-  `keystore/keystore.properties`). **Never lose or regenerate this** — updates
-  must be signed with the same key. On Play, opt into **Play App Signing** at
-  first upload so Google escrows the app key and a lost upload key can be
-  reset.
+  `keystore/keystore.properties`). Both live ONLY on the build machine now —
+  they are gitignored and **must never be committed** (they were tracked
+  before Sept 2026; treat that key as exposed). On Play, opt into
+  **Play App Signing** at first upload so Google escrows the app key; then
+  reset the exposed upload key: Play Console → Setup → App signing →
+  **Request upload key reset**, generate a fresh keystore
+  (`keytool -genkeypair -v -keystore upload.jks -alias parkcast -keyalg RSA
+  -keysize 2048 -validity 9125`), and upload its certificate. Keep a copy of
+  the new keystore + passwords in a password manager, never in the repo.
 
 ## Amazon Appstore (Fire TV) — do this one first
 

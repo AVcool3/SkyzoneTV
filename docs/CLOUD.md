@@ -32,10 +32,12 @@ Per-TV setup is the same as [SETUP.md](SETUP.md), with two differences:
 - The app/Downloader URLs use the cloud address:
   APK at `https://parkcast.onrender.com/parkcast-player.apk`, server address
   `https://parkcast.onrender.com`.
-- **Approval:** in cloud mode a new screen doesn't join automatically —
-  it shows a 6-digit pairing code and waits. Open the dashboard's TVs tab,
-  find the card showing that code, press **Approve**, then name it. (This is
-  what keeps random internet visitors from pairing screens to your server.)
+- **Pairing:** in cloud mode a new screen doesn't join automatically — it
+  shows a 6-digit code and waits. In the dashboard's Screens page press
+  **+ Add screen** and type that code; the screen joins your venue and gets
+  a name you can edit. Codes rotate every 15 minutes, and screens nobody
+  claims within a day expire. (This is what keeps random internet visitors
+  from pairing screens to your server.)
 
 ### Updating
 
@@ -62,8 +64,12 @@ Any Ubuntu VPS (DigitalOcean, Lightsail, Hetzner):
 - Media file URLs are unguessable (random 128-bit ids) but not logged-in-only;
   don't upload anything confidential.
 - Login is rate-limited (10 attempts / 15 min per IP).
-- One venue = one instance. Onboarding another location means running this
-  same blueprint again under a new name — nothing is shared between venues.
+- One instance now serves MANY venues: each vendor signs up on the landing
+  page and gets an isolated workspace (their own screens, media, playlists,
+  parties, and team). Set `OWNER_EMAIL` before sharing the URL so the
+  default venue (any pre-existing screens/media) can only be claimed by you.
+  A dedicated single-venue instance is still fine — run the blueprint again
+  under a new name.
 
 ## CI gate on deploys
 

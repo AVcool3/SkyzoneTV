@@ -24,7 +24,9 @@ jobs:
       - run: npm ci
       - name: Byline parser unit tests
         run: node scripts/test-byline.js
-      - name: Boot server and run smoke suite
+      - name: Store migration unit tests
+        run: node scripts/test-migrate.js
+      - name: Boot server and run smoke suite (LAN mode)
         run: |
           ADMIN_PASSWORD=ci-smoke DATA_DIR=/tmp/ci-data node src/index.js &
           SERVER_PID=$!
@@ -34,4 +36,15 @@ jobs:
           done
           curl -fs http://localhost:8080/healthz
           ADMIN_PASSWORD=ci-smoke node scripts/smoke.js
+          kill $SERVER_PID
+      - name: Boot server and run pairing suite (cloud mode, as production runs)
+        run: |
+          ADMIN_PASSWORD=ci-claim DATA_DIR=/tmp/ci-claim REQUIRE_TV_APPROVAL=1 PORT=8081 node src/index.js &
+          SERVER_PID=$!
+          for i in $(seq 1 30); do
+            curl -fs http://localhost:8081/healthz > /dev/null && break
+            sleep 1
+          done
+          curl -fs http://localhost:8081/healthz
+          BASE_URL=http://localhost:8081 node scripts/smoke-claim.js
           kill $SERVER_PID

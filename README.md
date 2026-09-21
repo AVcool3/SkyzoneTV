@@ -1,6 +1,7 @@
-# ParkCast — Schaumburg Park Signage System
+# ParkCast — Venue Signage System
 
-A complete digital-signage system for the 12 TVs at Skyzone Schaumburg:
+A complete multi-venue digital-signage platform (first deployed at Sky Zone
+Schaumburg). Each venue signs up for its own isolated workspace:
 
 - **Web dashboard** (phone or laptop) — see every TV live, upload videos and
   photo slides into a media library, build **playlists** (mixes of media with

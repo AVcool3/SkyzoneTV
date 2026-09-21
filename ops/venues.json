@@ -2,9 +2,14 @@
   "_comment": "Every deployed venue instance the reliability agent watches. Add a row per venue; url is the instance root (no trailing slash) — /healthz is appended by the checks.",
   "venues": [
     {
-      "name": "Sky Zone Schaumburg",
+      "name": "Sky Zone Schaumburg (new parkcast service)",
       "url": "https://parkcast.onrender.com",
       "note": "Confirm this matches the URL Render assigned to the parkcast service (a suffix is added if the name was taken)."
+    },
+    {
+      "name": "Sky Zone Schaumburg (old skyzone-tv service — live TVs until cutover)",
+      "url": "https://skyzone-tv.onrender.com",
+      "note": "Remove this row after the TVs are re-pointed and the old service is deleted."
     }
   ]
 }

@@ -1,18 +1,26 @@
 # One-click Render deploy: render.com -> New -> Blueprint -> pick this repo.
 # Gives you HTTPS, a permanent URL, auto-deploy on every push, and a
 # persistent disk for uploaded media + settings.
+#
+# After creating the service, set these in the Render dashboard (Environment):
+#   ADMIN_PASSWORD  — legacy dashboard password for the default venue
+#   OWNER_EMAIL     — YOUR email; the signup with this address claims the
+#                     default venue (all existing screens/media). Set it
+#                     BEFORE sharing the URL with anyone.
+#   ROLLER_CLIENT_ID / ROLLER_CLIENT_SECRET — optional, for booking sync
+# Also enable "Wait for CI to pass before deploying" so red tests block deploys.
 services:
   - type: web
     # Renamed from skyzone-tv (Sept 2026). Render provisions this as a NEW
     # service with a fresh disk; the old skyzone-tv service keeps its data
-    # until deleted from the Render dashboard. Set ADMIN_PASSWORD (and any
-    # ROLLER_*/VENUE_NAME vars) on the new service before switching TVs over.
+    # until deleted from the Render dashboard.
     name: parkcast
     runtime: node
     rootDir: server
-    buildCommand: npm install --omit=dev
+    buildCommand: npm ci --omit=dev
     startCommand: node src/index.js
     plan: starter
+    healthCheckPath: /healthz
     disk:
       name: parkcast-data
       mountPath: /data
@@ -22,3 +30,16 @@ services:
         value: /data
       - key: REQUIRE_TV_APPROVAL
         value: "1"
+      # Fallback timezone for imported party times; each venue can override
+      # it in Team -> Venue. Without it the server runs UTC and a 2:30 PM
+      # party would fire hours off.
+      - key: TZ
+        value: America/Chicago
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: OWNER_EMAIL
+        sync: false
+      - key: ROLLER_CLIENT_ID
+        sync: false
+      - key: ROLLER_CLIENT_SECRET
+        sync: false

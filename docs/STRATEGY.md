@@ -81,7 +81,8 @@ instead of "should we rip out our system."
 1. Sky Zone Schaumburg live on all screens — the pilot, the case study, and
    the demo video. Target: mid-October 2026.
 2. Five external venues live by end of November 2026, run as single-tenant
-   instances (multi-tenancy is deferred until after the five are live —
+   instances (multi-tenancy SHIPPED Sept 2026: one instance, isolated
+   venue workspaces with owner/staff roles —
    five Render services from this repo is fine and fast).
 3. ROLLER partnership outreach starts immediately (long lead time); CSV
    remains the universal fallback and is NOT a launch blocker.
