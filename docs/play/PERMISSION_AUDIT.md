@@ -31,7 +31,7 @@ VERIFICATION in DATA_SAFETY_AUDIT.md).
 ## 2. `android.permission.RECEIVE_BOOT_COMPLETED`
 
 - **Declared:** AndroidManifest.xml:5. Consumed by the exported `BootReceiver`
-  registered for `BOOT_COMPLETED` and `QUICKBOOT_POWERON` (AndroidManifest.xml:35-40;
+  registered for `BOOT_COMPLETED` and `QUICKBOOT_POWERON` (AndroidManifest.xml:36-41;
   action check in BootReceiver.kt:17).
 - **Why needed:** signage kiosks power-cycle with the venue (wall switches, power cuts,
   overnight shutdown). The receiver relaunches MainActivity on boot

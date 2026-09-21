@@ -151,7 +151,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun playerUrl(): String {
         var base = prefs.getString("serverUrl", "") ?: ""
-        if (!base.startsWith("http")) base = "http://$base"
+        // No scheme typed -> assume HTTPS; cleartext only happens when an
+        // operator deliberately enters http:// for a LAN server.
+        if (!base.startsWith("http")) base = "https://$base"
         base = base.trimEnd('/')
         if (!base.endsWith("/player")) base = "$base/player"
         return "$base/"

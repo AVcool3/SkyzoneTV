@@ -218,7 +218,9 @@
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     let nowPlaying = null;
     if (state && state.power === 'off') nowPlaying = 'Screen off';
-    else if (state && state.override) nowPlaying = `Party: ${state.override.name}`;
+    // Deliberately name-free: the heartbeat leaves the device, and the
+    // dashboard already knows whose party it is from its own server data.
+    else if (state && state.override) nowPlaying = 'Party takeover';
     else if (playlist[current]) nowPlaying = playlist[current].label;
     else nowPlaying = 'Idle';
     ws.send(JSON.stringify({ type: 'status', nowPlaying }));

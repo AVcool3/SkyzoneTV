@@ -611,6 +611,13 @@ const PAIR_CODE_TTL = 15 * 60_000;
 const UNCLAIMED_TTL = 24 * 60 * 60_000;
 setInterval(() => {
   let changed = false;
+  // Retention: finished parties carry children's first names — they don't
+  // need to sit in the database forever. 30 days covers any dispute window.
+  const cutoff = Date.now() - 30 * 86_400_000;
+  const before = store.data.events.length;
+  store.data.events = store.data.events.filter(e =>
+    e.status !== 'done' || Date.parse(e.startsAt) > cutoff);
+  if (store.data.events.length !== before) changed = true;
   const keep = [];
   for (const tv of store.data.tvs) {
     if (tv.venueId) { keep.push(tv); continue; }
@@ -1678,8 +1685,15 @@ server.listen(PORT, () => {
   for (const a of lanAddresses()) {
     console.log(`  On your network: http://${a}:${PORT}/dashboard/  (players: http://${a}:${PORT}/player/)`);
   }
-  console.log(`  Dashboard password: ${ADMIN_PASSWORD}` +
-    (process.env.ADMIN_PASSWORD ? '' : '  (auto-generated; set the ADMIN_PASSWORD environment variable to choose your own)'));
+  // The password is printed ONLY when this boot generated it (first run on
+  // a fresh database, where the operator has no other way to learn it).
+  // Cloud platforms retain stdout logs — an env-configured password must
+  // never appear there.
+  if (process.env.ADMIN_PASSWORD) {
+    console.log('  Dashboard password: (set via ADMIN_PASSWORD environment variable)');
+  } else {
+    console.log(`  Dashboard password: ${ADMIN_PASSWORD}  (auto-generated; set the ADMIN_PASSWORD environment variable to choose your own)`);
+  }
 });
 
 process.on('SIGINT', () => { try { store.saveNow(); } catch {} process.exit(0); });

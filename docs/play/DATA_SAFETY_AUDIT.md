@@ -1,6 +1,9 @@
 # ParkCast Player — Play Console Data Safety Audit & Form Answers
 
-Audit date: 2026-09-21. Companion documents: PRIVACY_DATA_INVENTORY.md (traced data
+Audit date: 2026-09-21, re-verified the same day against v1.3.1 / versionCode 6
+(commits 48d305c and 9693c6f changed MainActivity, the manifest's leanback flag, and
+strings — none of it altered the data surface; the logging grep was re-run clean).
+Companion documents: PRIVACY_DATA_INVENTORY.md (traced data
 flows), PERMISSION_AUDIT.md, SDK_DATA_AUDIT.md, SECRET_AUDIT.md. Every answer below is
 grounded in code read during this audit; file:line references are given where the answer
 depends on them.
@@ -65,12 +68,12 @@ shared…", STORE-PUBLISHING.md:56-60, verified 2026-09-21). The two documents a
 **Honest analysis — do not gloss this:**
 
 - The Play-distributed configuration talks HTTPS+WSS to `parkcast.onrender.com`:
-  `DEFAULT_SERVER_URL` is `https://` (app/build.gradle.kts:29), and the page upgrades
+  `DEFAULT_SERVER_URL` is `https://` (app/build.gradle.kts:30), and the page upgrades
   the socket to `wss` whenever the page is https (player.js:171).
-- BUT `android:usesCleartextTraffic="true"` is set (AndroidManifest.xml:18), the MENU
-  dialog hints a plain-HTTP LAN address (`http://192.168.1.50:8080`,
-  MainActivity.kt:139), and `playerUrl()` prepends `http://` when no scheme is typed
-  (MainActivity.kt:131). An operator running the self-hosted LAN mode transmits the
+- BUT `android:usesCleartextTraffic="true"` is set (AndroidManifest.xml:19), the
+  address dialog hints a plain-HTTP LAN address (`http://192.168.1.50:8080`,
+  strings.xml:13 via MainActivity.kt:162), and `playerUrl()` prepends `http://` when no
+  scheme is typed (MainActivity.kt:154). An operator running the self-hosted LAN mode transmits the
   UUID + status unencrypted **on their own network to their own server**.
 
 Recommended answer: **Yes**, with this rationale kept on file: every transmission in the
@@ -94,7 +97,7 @@ genuinely needs cleartext capability.)*
 - Server-side: the venue owner deletes a screen from the dashboard, which removes the
   row including the UUID and nowPlaying (server/src/index.js:697-709); unclaimed screens
   auto-expire after 24 h (index.js:611, 617). The privacy policy commits to deletion
-  requests within 30 days with a contact address (privacy.html:53-59, 71).
+  requests within 30 days with a contact address (privacy.html:56-62, 74).
 
 ### Ephemeral-processing option
 
@@ -119,7 +122,7 @@ Target audience: **18+ / not designed for children**. The app is a B2B operator 
 its *users* are venue staff. Children appear only as *subjects displayed on screens* in
 physical venues, which does not make the app child-directed under Play's Families
 policy (the app has no interaction surface for viewers at all). Do not tick any
-child-appeal boxes; docs/STORE-PUBLISHING.md:59-60 already says the same.
+child-appeal boxes; docs/STORE-PUBLISHING.md:63-65 already says the same.
 
 ### Data Safety vs. the privacy policy (consistency check)
 
@@ -135,8 +138,9 @@ form, policy, and wire agree.
 
 **TV app: N/A — and document why.** Play's requirement applies to apps that "allow
 users to create an account". ParkCast Player has no account creation, no login, no
-sign-in UI of any kind: the entire native surface is a URL dialog and a permission
-dialog (MainActivity.kt:110-153); the player page pairs by showing a code
+sign-in UI of any kind: the entire native surface is a server-address dialog, a
+one-time permission dialog, and an exit-confirmation dialog (MainActivity.kt:133-176,
+213-222); the player page pairs by showing a code
 (player.js:267-276) and authenticates nothing (server treats players as unauthenticated
 by design, index.js:47, 570-604). In the Play Console "Account deletion" question,
 answer that the app does not allow account creation. The pairing code is not an
@@ -192,19 +196,19 @@ besides the ADMIN_PASSWORD startup banner above.
    docs/STORE-PUBLISHING.md:12-21; the old key/passwords remain extractable from
    commits `7834ba9`..`ebf2f34^` (SECRET_AUDIT.md §1).
 4. **MEDIUM — tighten the cleartext story before answering "encrypted in transit: Yes".**
-   Options, cheapest first: leave `usesCleartextTraffic` (AndroidManifest.xml:18) but
-   change the MENU-dialog default-scheme prepend from `http://` to `https://`
-   (`MainActivity.kt:131`) and the hint text (`MainActivity.kt:139`) so cleartext only
-   happens when an operator *types* `http://` deliberately; document the LAN exception
-   in the console notes. (IP-range cleartext whitelisting is not supported by Android
-   network security config, so full removal breaks LAN mode.)
-5. **LOW — update docs/STORE-PUBLISHING.md:53-57** (stale guidance): the privacy URL is
-   now `/privacy` (server/src/index.js:332), and "declare no data collected" conflicts
-   with this audit's recommended Device-ID declaration. (Doc outside docs/play/ — not
-   touched by this audit.)
-6. **LOW — server hygiene: auto-purge `done` events** after a retention window
+   Options, cheapest first: leave `usesCleartextTraffic` (AndroidManifest.xml:19) but
+   change the address-dialog default-scheme prepend from `http://` to `https://`
+   (`MainActivity.kt:154`) and the hint text (`strings.xml:13`, `setup_hint`) so
+   cleartext only happens when an operator *types* `http://` deliberately; document the
+   LAN exception in the console notes. (IP-range cleartext whitelisting is not
+   supported by Android network security config, so full removal breaks LAN mode.)
+5. **LOW — server hygiene: auto-purge `done` events** after a retention window
    (children's names/ages otherwise persist in db.json until an operator clears them —
    index.js:1432, scheduler.js:21/46).
+
+*(Resolved since first draft: docs/STORE-PUBLISHING.md's stale "no data collected"
+guidance was corrected by the release-process audit — it now matches this document's
+Device-ID declaration and the `/privacy` URL, STORE-PUBLISHING.md:53-61.)*
 
 ## 6. (b) The 5 most important Data Safety form answers
 
@@ -217,7 +221,7 @@ besides the ADMIN_PASSWORD startup banner above.
    is the one answer with a documented judgment call.
 4. **Deletion: Yes** — dashboard screen deletion removes the server-side ID
    (index.js:697-709), uninstall removes everything on-device, policy commits to
-   30-day request handling (privacy.html:53-59).
+   30-day request handling (privacy.html:56-62).
 5. **Account creation: none in the app** → account-deletion requirement N/A; target
    audience 18+/not child-directed; no Personal info (incl. children's names) is
    *collected* — they are operator-entered content displayed on screens, with the
@@ -231,7 +235,7 @@ besides the ADMIN_PASSWORD startup banner above.
    the dashboard env is the source of truth).
 2. **Privacy policy URL reachability + contact:** `https://parkcast.onrender.com/privacy`
    must be live at submission time, and the contact `srini.vanukuri@gmail.com`
-   (privacy.html:71) must match/forward to the Play Console developer contact. Confirm
+   (privacy.html:74) must match/forward to the Play Console developer contact. Confirm
    "UnlimitedFun LLC" (privacy.html:22) exactly matches the Play organization account
    name and its D-U-N-S verification.
 3. **Decide the two judgment calls on record:** (i) declare Device IDs vs. declare
@@ -251,3 +255,9 @@ besides the ADMIN_PASSWORD startup banner above.
 7. **Render platform logging:** confirm what Render retains (request logs may include
    TV IPs; stdout retains the ADMIN_PASSWORD banner until change #2 ships) and that
    this is acceptable under the venue's own privacy commitments.
+8. **Rebuild verification for v1.3.1:** the merged-manifest and generated-BuildConfig
+   checks in these audits were made against the last built artifact (versionCode 5).
+   After building the 1.3.1 (versionCode 6) release bundle, re-run
+   `aapt2 dump badging`/`aapt dump permissions` and confirm the permission list is
+   still exactly INTERNET, RECEIVE_BOOT_COMPLETED, SYSTEM_ALERT_WINDOW and that
+   leanback is required (source manifest AndroidManifest.xml:13).
