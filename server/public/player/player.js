@@ -44,6 +44,7 @@
   let errorStreak = 0;        // consecutive unplayable items
   let errorRetryTimer = null;
   let videoRetryTimer = null; // pending play() retry for the active video
+  let videoRevealTimer = null; // fallback reveal if 'playing' never fires
 
   function clearSlotHandlers(slot) {
     slot.video.onended = slot.video.onerror = slot.video.onplaying = null;
@@ -121,6 +122,13 @@
         node.playsInline = true;
         node.style.objectFit = e.fit || 'cover';
         node.style.borderRadius = (e.radius || 0) + 'vh';
+        // Invisible until frames render: old TV WebViews paint a play glyph
+        // over visible paused videos (fallback reveal keeps a stalled decode
+        // from leaving a hole in the design).
+        node.style.opacity = '0';
+        const revealEl = () => { node.style.opacity = '1'; };
+        node.onplaying = revealEl;
+        setTimeout(revealEl, 1200);
         // A broken video hides itself; the rest of the design keeps playing.
         node.onerror = () => { node.style.display = 'none'; };
         node.play().catch(() => {});
@@ -329,8 +337,10 @@
       } else startCurrent();
     } else {
       if (activeSlot.video.src) {
-        activeSlot.video.classList.add('visible');
-        activeSlot.video.play().catch(() => {});
+        const v = activeSlot.video;
+        if (!v.paused && !v.ended) v.classList.add('visible');
+        else v.onplaying = () => { errorStreak = 0; v.classList.add('visible'); };
+        v.play().catch(() => {});
       } else startCurrent();
     }
   }
@@ -342,6 +352,8 @@
     errorRetryTimer = null;
     clearTimeout(videoRetryTimer);
     videoRetryTimer = null;
+    clearTimeout(videoRevealTimer);
+    videoRevealTimer = null;
     clearTimeout(imageTimer);
     imageTimer = null;
     // The standby slot keeps handlers from its last active stint; a preload
@@ -383,7 +395,18 @@
       stopCompVideos(slot.slide);
       slot.video.src = item.url;
       slot.video.loop = playlist.length === 1;
-      slot.video.classList.add('visible');
+      // Reveal only once frames are actually rendering: a VISIBLE paused
+      // video makes old Android/Fire TV WebViews paint a big play glyph
+      // that CSS cannot remove there. Fallback reveal after 1.2s so a slow
+      // decode never leaves the screen black.
+      const reveal = () => {
+        clearTimeout(videoRevealTimer);
+        videoRevealTimer = null;
+        slot.video.classList.add('visible');
+      };
+      videoRevealTimer = setTimeout(() => {
+        if (slot === activeSlot && playlist[current] === item) reveal();
+      }, 1200);
       // A failing file can report through BOTH onerror and the play() chain;
       // it must only count once or a single bad file trips the all-failed
       // breaker and blanks a healthy loop.
@@ -396,7 +419,7 @@
           slot.video.play().catch(failOnce);
         }, 2000);
       });
-      slot.video.onplaying = () => { errorStreak = 0; };
+      slot.video.onplaying = () => { errorStreak = 0; reveal(); };
       slot.video.onended = next;
       slot.video.onerror = failOnce;
     }
@@ -495,8 +518,9 @@
     }
     let videoBehind = false;
     if (o.mediaUrl) {
-      overrideEl.classList.add('has-video');
       videoBehind = true;
+      overrideVideo.onplaying = () => overrideEl.classList.add('has-video');
+      if (!overrideVideo.paused && !overrideVideo.ended) overrideEl.classList.add('has-video');
       // If the birthday video can't play, fall back to the built-in comic
       // background rather than showing black behind the hero.
       overrideVideo.onerror = () => {
