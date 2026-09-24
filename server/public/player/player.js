@@ -29,6 +29,7 @@
   } catch {} // blocked storage: the TV still boots, it just re-pairs each launch
   let ws = null;
   let reconnectDelay = 1000;
+  let assetVersion = null;   // player build fingerprint from the server
   let state = null;           // last state from server
   let playlist = [];          // [{id,label,url}]
   let playlistKey = '';
@@ -195,7 +196,16 @@
     ws.onmessage = e => {
       let msg;
       try { msg = JSON.parse(e.data); } catch { return; }
-      if (msg.type === 'state') applyState(msg);
+      if (msg.type === 'state') {
+        // A deploy changed the player files: reload once so the fix runs
+        // here too. The baseline is whatever the first push after page load
+        // reports; only a CHANGE afterwards triggers the reload.
+        if (msg.assetVersion) {
+          if (assetVersion && assetVersion !== msg.assetVersion) { location.reload(); return; }
+          assetVersion = msg.assetVersion;
+        }
+        applyState(msg);
+      }
       else if (msg.type === 'reregister') {
         try {
           localStorage.removeItem('parkcast.tvId');
@@ -579,3 +589,4 @@
     connect();
   })();
 })();
+

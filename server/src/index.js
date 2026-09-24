@@ -255,7 +255,7 @@ function playerItem(m, durationSec) {
 function playerState(tv) {
   // Unclaimed/unapproved screens get no content — just their pairing code.
   if (tv.approved === false || !tv.venueId) {
-    return { type: 'state', tv: { id: tv.id, name: tv.name }, power: 'on',
+    return { type: 'state', assetVersion: ASSET_VERSION, tv: { id: tv.id, name: tv.name }, power: 'on',
       approved: false, pairCode: tv.pairCode || '', fit: 'contain',
       playlist: [], transition: 'none', override: null };
   }
@@ -305,7 +305,7 @@ function playerState(tv) {
       themeSpec
     };
   }
-  return { type: 'state', tv: { id: tv.id, name: tv.name }, power: tv.power,
+  return { type: 'state', assetVersion: ASSET_VERSION, tv: { id: tv.id, name: tv.name }, power: tv.power,
     approved: true, fit: tv.fit || 'contain', playlist, transition, override,
     venueName: store.venue(tv.venueId)?.name || '' };
 }
@@ -362,6 +362,19 @@ const VERSION = (() => {
   catch { return '0'; }
 })();
 const bootedAt = Date.now();
+// Fingerprint of the player the TVs run. Sent in every player state push;
+// a TV that sees it change (its websocket reconnects after each deploy)
+// reloads itself, so player fixes reach the whole fleet without anyone
+// touching a TV.
+const ASSET_VERSION = (() => {
+  try {
+    const h = crypto.createHash('sha1');
+    for (const f of ['player/index.html', 'player/player.js', 'player/birthday.js']) {
+      h.update(fs.readFileSync(path.join(ROOT, 'public', f)));
+    }
+    return h.digest('hex').slice(0, 10);
+  } catch { return String(bootedAt); }
+})();
 app.get('/healthz', (req, res) => {
   // Liveness only — fleet counts are tenant data and stay behind auth.
   res.json({
