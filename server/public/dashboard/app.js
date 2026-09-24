@@ -75,8 +75,7 @@
     me = null;
     localStorage.removeItem('parkcast.token');
     localStorage.removeItem('skyzone.token');
-    localStorage.removeItem('parkcast.homeToken');
-    $('supportBanner').classList.add('hidden');
+    localStorage.removeItem('parkcast.homeToken'); // legacy support-session key
     if (ws) { ws.onclose = null; ws.close(); ws = null; }
     // Nothing venue-private survives into the next person's session on a
     // shared front-desk computer: no toast, no typed passwords, no rendered
@@ -236,9 +235,6 @@
     $('dayState').textContent = state.settings.dayStarted ? 'Day running' : 'Day ended — screens off';
     $('venueTag').textContent = state.settings.venueName || '';
     $('venueTagTop').textContent = state.settings.venueName || '';
-    const inSupport = !!localStorage.getItem('parkcast.homeToken');
-    $('supportBanner').classList.toggle('hidden', !inSupport);
-    if (inSupport) $('supportVenueName').textContent = state.settings.venueName || '';
     renderTvs();
     renderMedia();
     renderStudio();
@@ -1993,12 +1989,27 @@
     }
   }
 
-  // ---------- Platform (admin) ----------
+  // ---------- Platform (CEO console) ----------
+  // Governance only: venues and accounts. Vendor media and screens are
+  // never reachable from here — the server exposes counts, nothing more.
+  let pfOpenVenue = null; // venue id whose member panel is expanded
+
   async function renderPlatform() {
     let venues;
     try { venues = (await api('/api/admin/venues')).venues; }
     catch (err) { toast(err.message, true); return; }
     $('platformCount').textContent = venues.length;
+
+    const screens = venues.reduce((a, v) => a + v.screens, 0);
+    const online = venues.reduce((a, v) => a + v.online, 0);
+    const members = venues.reduce((a, v) => a + v.members, 0);
+    const suspended = venues.filter(v => v.suspended).length;
+    $('pfStats').innerHTML = `
+      <div class="pf-tile"><b>${venues.length}</b><span>Venues</span></div>
+      <div class="pf-tile"><b>${online}<span style="display:inline;font-size:15px;color:var(--muted)"> / ${screens}</span></b><span>Screens online</span></div>
+      <div class="pf-tile"><b>${members}</b><span>Accounts</span></div>
+      <div class="pf-tile"><b>${suspended}</b><span>Suspended</span></div>`;
+
     const list = $('venueList');
     list.innerHTML = '';
     for (const v of venues) {
@@ -2009,23 +2020,11 @@
           <b>${esc(v.name)}${v.isDefault ? ' <span class="chip-home">HOME</span>' : ''}${v.suspended ? ' <span class="chip-suspended">SUSPENDED</span>' : ''}</b>
           <span class="venue-stats">${v.screens} screen${v.screens === 1 ? '' : 's'} (${v.online} online) · ${v.members} member${v.members === 1 ? '' : 's'} · ${v.media} media · ${v.upcomingParties} upcoming part${v.upcomingParties === 1 ? 'y' : 'ies'}</span>
         </div>
-        <button class="btn tiny" data-act="open">Open</button>
+        <button class="btn tiny" data-act="members">${pfOpenVenue === v.id ? 'Hide members' : 'Members'}</button>
         ${v.isDefault ? '' : `<button class="btn tiny ${v.suspended ? '' : 'danger'}" data-act="susp">${v.suspended ? 'Resume' : 'Suspend'}</button>`}`;
-      row.querySelector('[data-act="open"]').addEventListener('click', async () => {
-        try {
-          const r = await api(`/api/admin/venues/${v.id}/enter`, { method: 'POST' });
-          // Keep the way home before swapping into the support session —
-          // but never overwrite it when hopping venue-to-venue.
-          if (!localStorage.getItem('parkcast.homeToken')) {
-            localStorage.setItem('parkcast.homeToken', token);
-          }
-          token = r.token;
-          localStorage.setItem('parkcast.token', token);
-          if (ws) { ws.onclose = null; ws.close(); ws = null; }
-          document.querySelector('.tab[data-tab="tvs"]').click();
-          toast(`Support view: ${r.venueName}`);
-          enterApp();
-        } catch (err) { toast(err.message, true); }
+      row.querySelector('[data-act="members"]').addEventListener('click', () => {
+        pfOpenVenue = pfOpenVenue === v.id ? null : v.id;
+        renderPlatform();
       });
       const suspBtn = row.querySelector('[data-act="susp"]');
       if (suspBtn) suspBtn.addEventListener('click', async () => {
@@ -2038,24 +2037,101 @@
         } catch (err) { toast(err.message, true); }
       });
       list.appendChild(row);
+      if (pfOpenVenue === v.id) {
+        const panel = document.createElement('div');
+        panel.className = 'member-panel';
+        list.appendChild(panel);
+        renderVenueMembers(v, panel);
+      }
     }
   }
 
-  $('supportReturnBtn').addEventListener('click', async () => {
-    const home = localStorage.getItem('parkcast.homeToken');
-    if (!home) return;
-    // End the support session server-side, then go home.
-    try { await api('/api/logout', { method: 'POST' }); } catch {}
-    localStorage.removeItem('parkcast.homeToken');
-    token = home;
-    localStorage.setItem('parkcast.token', token);
-    $('supportBanner').classList.add('hidden');
-    if (ws) { ws.onclose = null; ws.close(); ws = null; }
-    document.querySelector('.tab[data-tab="tvs"]').click();
-    enterApp().then(() => {
-      if (me && me.platformAdmin) document.querySelector('.tab[data-tab="platform"]').click();
+  async function renderVenueMembers(v, panel) {
+    let members;
+    try { members = (await api(`/api/admin/venues/${v.id}/members`)).members; }
+    catch (err) { toast(err.message, true); return; }
+    panel.innerHTML = '';
+    if (members.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'hint';
+      empty.style.padding = '6px 0 10px';
+      empty.textContent = 'No accounts — add an owner so someone can run this venue.';
+      panel.appendChild(empty);
+    }
+    for (const m of members) {
+      const row = document.createElement('div');
+      row.className = 'team-row';
+      const self = me && me.email && m.email === me.email;
+      row.innerHTML = `
+        <div class="team-id">
+          <b>${esc(m.name || m.email)}${self ? ' <span class="you-chip">you</span>' : ''}${m.disabled ? ' <span class="chip-disabled">DISABLED</span>' : ''}${m.platformAdmin ? ' <span class="chip-home">ADMIN</span>' : ''}</b>
+          <span class="team-mail">${esc(m.email)}</span>
+        </div>
+        <span class="role-chip ${m.role}">${m.role === 'owner' ? 'Owner' : 'Staff'}</span>
+        ${self ? '' : `
+        <div class="kebab">
+          <button class="btn tiny kebab-btn" title="More actions" aria-label="More actions">⋯</button>
+          <div class="menu hidden">
+            <button class="menu-item" data-act="role">${m.role === 'owner' ? 'Make staff' : 'Make owner'}</button>
+            <button class="menu-item" data-act="password">Reset password</button>
+            <button class="menu-item" data-act="disable">${m.disabled ? 'Restore access' : 'Disable access'}</button>
+            <button class="menu-item danger" data-act="remove">Remove account</button>
+          </div>
+        </div>`}`;
+      const kebabBtn = row.querySelector('.kebab-btn');
+      if (kebabBtn) {
+        const menu = row.querySelector('.menu');
+        kebabBtn.addEventListener('click', e => {
+          e.stopPropagation();
+          const wasOpen = !menu.classList.contains('hidden');
+          closeAllMenus();
+          if (!wasOpen) menu.classList.remove('hidden');
+        });
+        menu.addEventListener('click', async e => {
+          const act = e.target.dataset?.act;
+          if (!act) return;
+          closeAllMenus();
+          try {
+            if (act === 'role') {
+              await api(`/api/admin/users/${m.id}`, { method: 'PATCH', body: JSON.stringify({ role: m.role === 'owner' ? 'staff' : 'owner' }) });
+              toast('Role updated');
+            } else if (act === 'password') {
+              const pw = prompt(`New password for ${m.email} (8+ characters):`);
+              if (!pw) return;
+              await api(`/api/admin/users/${m.id}`, { method: 'PATCH', body: JSON.stringify({ password: pw }) });
+              toast('Password changed — they are signed out everywhere');
+            } else if (act === 'disable') {
+              if (!m.disabled && !confirm(`Disable ${m.email}? They are signed out and cannot sign in anywhere until restored.`)) return;
+              await api(`/api/admin/users/${m.id}`, { method: 'PATCH', body: JSON.stringify({ disabled: !m.disabled }) });
+              toast(m.disabled ? 'Access restored' : 'Access disabled');
+            } else if (act === 'remove') {
+              if (!confirm(`Remove ${m.email}'s account entirely? This cannot be undone.`)) return;
+              await api(`/api/admin/users/${m.id}`, { method: 'DELETE' });
+              toast('Account removed');
+            }
+          } catch (err) { toast(err.message, true); }
+          renderPlatform();
+        });
+      }
+      panel.appendChild(row);
+    }
+    const addBtn = document.createElement('button');
+    addBtn.className = 'btn tiny';
+    addBtn.style.margin = '4px 0 12px';
+    addBtn.textContent = '+ Add owner';
+    addBtn.addEventListener('click', async () => {
+      const email = prompt(`Owner email for "${v.name}":`);
+      if (!email) return;
+      const pw = prompt('Temporary password (8+ characters):');
+      if (!pw) return;
+      try {
+        await api(`/api/admin/venues/${v.id}/owner`, { method: 'POST', body: JSON.stringify({ email, password: pw }) });
+        toast(`${email} can sign in to ${v.name} now`);
+        renderPlatform();
+      } catch (err) { toast(err.message, true); }
     });
-  });
+    panel.appendChild(addBtn);
+  }
 
   $('addVenueBtn').addEventListener('click', () => {
     $('venueCreateForm').classList.toggle('hidden');

@@ -622,13 +622,63 @@ const run = async () => {
   check('non-admin cannot provision venues',
     (await api(tokenB, 'POST', '/api/admin/venues', { name: 'X', ownerEmail: 'x@y.dev', ownerPassword: '12345678' })).status === 403);
 
-  // support session: same admin identity, scoped into another venue
+  // governance boundary: there is NO way into a vendor's workspace — the
+  // enter endpoint must not exist, and stats expose counts only
   const bId = adminList.data.venues.find(v => v.name === 'Smoke Venue B').id;
-  const enter = await api(token, 'POST', `/api/admin/venues/${bId}/enter`);
-  check('admin can open a venue for support', enter.status === 200 && !!enter.data.token);
-  const supState = await api(enter.data.token, 'GET', '/api/state');
-  check('support session is scoped to that venue', supState.data.settings?.venueName === 'Smoke Venue B');
-  check('non-admin cannot open venues', (await api(tokenB, 'POST', `/api/admin/venues/${bId}/enter`)).status === 403);
+  check('venue-enter capability does not exist',
+    (await api(token, 'POST', `/api/admin/venues/${bId}/enter`)).status === 404);
+  const bRow = adminList.data.venues.find(v => v.id === bId);
+  check('admin venue stats expose counts only',
+    bRow.media === undefined || typeof bRow.media === 'number');
+
+  // account governance: list, role, password, disable, remove
+  const bMembers = await api(token, 'GET', `/api/admin/venues/${bId}/members`);
+  check('admin lists a venue\'s members', bMembers.status === 200 &&
+    bMembers.data.members.some(m => m.email === vbEmail));
+  check('non-admin cannot list members',
+    (await api(tokenB, 'GET', `/api/admin/venues/${bId}/members`)).status === 403);
+
+  // clean leftover from prior runs, then add a governed account to venue B
+  for (const m of bMembers.data.members) {
+    if (m.email === 'smoke-gov@test.dev') await api(token, 'DELETE', `/api/admin/users/${m.id}`);
+  }
+  const govAdd = await api(token, 'POST', `/api/admin/venues/${bId}/owner`, {
+    email: 'smoke-gov@test.dev', password: 'gov-pass-9999'
+  });
+  check('admin adds an owner to a venue', govAdd.status === 200);
+  const govId = (await api(token, 'GET', `/api/admin/venues/${bId}/members`)).data.members
+    .find(m => m.email === 'smoke-gov@test.dev').id;
+  const govIn = await api(null, 'POST', '/api/signin', { email: 'smoke-gov@test.dev', password: 'gov-pass-9999' });
+  check('governed account signs in to its venue',
+    govIn.status === 200 &&
+    (await api(govIn.data.token, 'GET', '/api/state')).data.settings?.venueName === 'Smoke Venue B');
+
+  const govRole = await api(token, 'PATCH', `/api/admin/users/${govId}`, { role: 'staff' });
+  check('admin changes a role', govRole.status === 200);
+  await api(token, 'PATCH', `/api/admin/users/${govId}`, { password: 'gov-pass-new1' });
+  check('admin password reset revokes sessions',
+    (await api(govIn.data.token, 'GET', '/api/state')).status === 401);
+  const govDis = await api(token, 'PATCH', `/api/admin/users/${govId}`, { disabled: true });
+  check('admin disables service access', govDis.status === 200);
+  check('disabled account cannot sign in',
+    (await api(null, 'POST', '/api/signin', { email: 'smoke-gov@test.dev', password: 'gov-pass-new1' })).status === 403);
+  await api(token, 'PATCH', `/api/admin/users/${govId}`, { disabled: false });
+  check('restored account signs in again',
+    (await api(null, 'POST', '/api/signin', { email: 'smoke-gov@test.dev', password: 'gov-pass-new1' })).status === 200);
+  // a platform admin can never edit their own access (no self-lockout, no
+  // self-privilege games) — smoke-owner claimed the default venue, so they
+  // are a platform admin with a real user row to test against
+  const defId = adminList.data.venues.find(v => v.isDefault).id;
+  const ownRow = (await api(token, 'GET', `/api/admin/venues/${defId}/members`)).data.members
+    .find(m => m.email === ownEmail);
+  check('admin cannot edit their own access',
+    (await api(signOwn.data.token, 'PATCH', `/api/admin/users/${ownRow.id}`, { disabled: true })).status === 400);
+  check('admin removes an account',
+    (await api(token, 'DELETE', `/api/admin/users/${govId}`)).status === 200);
+  check('removed account cannot sign in',
+    (await api(null, 'POST', '/api/signin', { email: 'smoke-gov@test.dev', password: 'gov-pass-new1' })).status === 401);
+  check('non-admin cannot govern accounts',
+    (await api(tokenB, 'PATCH', `/api/admin/users/${govId}`, { disabled: true })).status === 403);
 
   // suspension locks the dashboard out, immediately and at sign-in
   const susp = await api(token, 'POST', `/api/admin/venues/${pvId}/suspend`, { suspended: true });

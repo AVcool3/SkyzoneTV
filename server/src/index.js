@@ -73,9 +73,7 @@ function verifyPassword(password, stored) {
 const SESSION_TTL_MS = 30 * 86_400_000; // sessions expire after 30 days
 const TOKENS_PER_USER = 10;             // signing in on an 11th device evicts the oldest
 
-// `venueId` scopes a session into a venue other than the user's own — used
-// only for platform-admin support sessions ("Open venue" on the Platform page).
-function issueToken(userId, venueId = null) {
+function issueToken(userId) {
   const token = crypto.randomBytes(24).toString('hex');
   let tokens = store.data.settings.tokens;
   // Caps are per-user so one busy (or hostile) account can never evict
@@ -85,7 +83,7 @@ function issueToken(userId, venueId = null) {
     const drop = new Set(mine.slice(0, mine.length - TOKENS_PER_USER + 1).map(t => t.token));
     tokens = tokens.filter(t => !drop.has(t.token));
   }
-  tokens.push({ token, userId, ...(venueId ? { venueId } : {}), createdAt: Date.now() });
+  tokens.push({ token, userId, createdAt: Date.now() });
   while (tokens.length > 2000) tokens.shift();
   store.data.settings.tokens = tokens;
   store.save();
@@ -101,13 +99,13 @@ function sessionFor(token) {
     store.save();
     return null;
   }
-  // Support sessions carry an explicit venue; everyone else lands in their own.
-  const overrideVenue = entry.venueId && store.venue(entry.venueId) ? entry.venueId : null;
   if (entry.userId === 'legacy-admin') {
-    return { userId: 'legacy-admin', venueId: overrideVenue || store.defaultVenueId() };
+    return { userId: 'legacy-admin', venueId: store.defaultVenueId() };
   }
   const user = store.user(entry.userId);
-  return user ? { userId: user.id, venueId: overrideVenue || user.venueId } : null;
+  if (!user) return null;
+  if (user.disabled === true) return null; // access revoked platform-wide
+  return { userId: user.id, venueId: user.venueId };
 }
 // Platform admins run the ParkCast service itself: they see every venue,
 // create and suspend workspaces, and can open any venue for support. The
@@ -441,6 +439,9 @@ app.post('/api/signin', (req, res) => {
   if (!user || typeof password !== 'string' || !verifyPassword(password, user.passHash)) {
     return res.status(401).json({ error: 'Wrong email or password' });
   }
+  if (user.disabled === true) {
+    return res.status(403).json({ error: 'This account is disabled — contact ParkCast support' });
+  }
   const home = store.venue(user.venueId);
   if (home?.suspended && user.platformAdmin !== true) {
     return res.status(403).json({ error: 'This venue is suspended — contact ParkCast support' });
@@ -644,20 +645,77 @@ app.post('/api/admin/venues/:id/suspend', requireAuth, requireAdmin, (req, res) 
   res.json({ ok: true, suspended: v.suspended });
 });
 
-app.post('/api/admin/venues/:id/enter', requireAuth, requireAdmin, (req, res) => {
+// Governance boundary: platform admins manage venues and ACCESS — never
+// content. There is deliberately no way to mint a session inside a vendor
+// venue, so vendor media, screens, playlists, and parties stay theirs alone
+// (the venue list above exposes counts only).
+
+app.get('/api/admin/venues/:id/members', requireAuth, requireAdmin, (req, res) => {
   const v = store.venue(req.params.id);
   if (!v) return res.status(404).json({ error: 'No such venue' });
-  // A support session: the admin's own identity, scoped into this venue.
-  res.json({ token: issueToken(req.userId, v.id), venueName: v.name });
+  res.json({ members: store.data.users
+    .filter(u => u.venueId === v.id)
+    .map(u => ({ id: u.id, email: u.email, name: u.name, role: u.role,
+      disabled: u.disabled === true, platformAdmin: u.platformAdmin === true,
+      createdAt: u.createdAt })) });
 });
 
+// Give a venue a (new) owner — e.g. after its previous owner left.
+app.post('/api/admin/venues/:id/owner', requireAuth, requireAdmin, (req, res) => {
+  const v = store.venue(req.params.id);
+  if (!v) return res.status(404).json({ error: 'No such venue' });
+  const { email, password } = req.body || {};
+  const cleanEmail = String(email || '').trim().toLowerCase();
+  if (!EMAIL_RE.test(cleanEmail)) return res.status(400).json({ error: 'Enter a valid email address' });
+  if (typeof password !== 'string' || password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  }
+  if (store.userByEmail(cleanEmail)) return res.status(400).json({ error: 'That email already has an account' });
+  if (store.data.users.length >= 500) return res.status(429).json({ error: 'Account limit reached' });
+  store.data.users.push({
+    id: crypto.randomUUID(), email: cleanEmail, passHash: hashPassword(password),
+    name: '', venueId: v.id, role: 'owner', createdAt: new Date().toISOString()
+  });
+  store.save();
+  res.json({ ok: true });
+});
+
+// Account governance: role, password reset, service access, platform admin.
+// Everything validates before applying; nobody edits their own access.
 app.patch('/api/admin/users/:id', requireAuth, requireAdmin, (req, res) => {
   const user = store.user(req.params.id);
   if (!user) return res.status(404).json({ error: 'No such user' });
-  if (user.id === req.userId) return res.status(400).json({ error: 'You cannot change your own platform access' });
-  const { platformAdmin } = req.body || {};
-  if (typeof platformAdmin !== 'boolean') return res.status(400).json({ error: 'platformAdmin must be true or false' });
-  user.platformAdmin = platformAdmin;
+  if (user.id === req.userId) return res.status(400).json({ error: 'You cannot change your own access — ask another platform admin' });
+  const { role, password, disabled, platformAdmin } = req.body || {};
+  if (role !== undefined && role !== 'owner' && role !== 'staff') {
+    return res.status(400).json({ error: 'Role must be owner or staff' });
+  }
+  if (password !== undefined && (typeof password !== 'string' || password.length < 8)) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  }
+  if (disabled !== undefined && typeof disabled !== 'boolean') {
+    return res.status(400).json({ error: 'disabled must be true or false' });
+  }
+  if (platformAdmin !== undefined && typeof platformAdmin !== 'boolean') {
+    return res.status(400).json({ error: 'platformAdmin must be true or false' });
+  }
+  if (role !== undefined) user.role = role;
+  if (password !== undefined) { user.passHash = hashPassword(password); revokeSessions(user.id); }
+  if (disabled !== undefined) {
+    user.disabled = disabled;
+    if (disabled) revokeSessions(user.id); // out, everywhere, now
+  }
+  if (platformAdmin !== undefined) user.platformAdmin = platformAdmin;
+  store.save();
+  res.json({ ok: true });
+});
+
+app.delete('/api/admin/users/:id', requireAuth, requireAdmin, (req, res) => {
+  const user = store.user(req.params.id);
+  if (!user) return res.status(404).json({ error: 'No such user' });
+  if (user.id === req.userId) return res.status(400).json({ error: 'You cannot remove yourself' });
+  store.data.users = store.data.users.filter(u => u.id !== user.id);
+  revokeSessions(user.id);
   store.save();
   res.json({ ok: true });
 });
