@@ -82,3 +82,21 @@ that on, a push to `main` only deploys after the CI check goes green.
 An hourly reliability agent also checks every venue in `ops/venues.json`
 (`<url>/healthz`) and records failures in `ops/INCIDENTS.md` — fill in the
 real venue URL there after deploying.
+
+## Moving a venue to a new server
+
+Content moves with one command run from any laptop (Node 20+), using only
+the public APIs — screens then re-pair by code:
+
+```
+OLD_URL=https://old-service.onrender.com OLD_PASSWORD=<admin password> \
+NEW_URL=https://new-service.onrender.com NEW_EMAIL=<owner email> NEW_PASSWORD=<owner password> \
+node server/scripts/migrate-service.js
+```
+
+It copies folders, uploaded media (labels, durations, folder placement),
+text slides, layout designs, playlists, custom themes, and the venue
+name/timezone into the signed-in owner's venue. It refuses to run against
+a venue that already has media. TVs, accounts, and party events do not
+migrate: re-pair each screen ("+ Add screen" + its code), and re-import
+parties from ROLLER/CSV on the new server.
