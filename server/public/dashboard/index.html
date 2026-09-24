@@ -252,6 +252,18 @@
 </div>
 
 <!-- Media picker modal -->
+<!-- Generic input dialog: replaces every native prompt() -->
+<div id="uiDialog" class="modal hidden">
+  <div class="modal-card" style="max-width:420px">
+    <h3 id="uiDialogTitle"></h3>
+    <div id="uiDialogFields"></div>
+    <div class="modal-actions">
+      <button id="uiDialogCancel" class="btn ghost">Cancel</button>
+      <button id="uiDialogOk" class="btn primary">Save</button>
+    </div>
+  </div>
+</div>
+
 <div id="pickerModal" class="modal hidden">
   <div class="modal-card">
     <h3 id="pickerTitle">Choose media</h3>

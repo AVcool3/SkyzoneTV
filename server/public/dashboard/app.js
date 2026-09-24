@@ -54,6 +54,54 @@
     toastTimer = setTimeout(() => t.classList.add('hidden'), 3500);
   }
 
+  // In-app input dialog replacing every native prompt(): matches the app's
+  // styling, supports multiple fields, Enter submits, Escape/Cancel resolve
+  // null. Usage: const v = await uiPrompt({title, fields:[{id,label,...}]});
+  let uiDialogResolve = null;
+  function uiPrompt({ title, fields, submitLabel = 'Save' }) {
+    return new Promise(resolve => {
+      if (uiDialogResolve) uiDialogResolve(null); // a new dialog replaces a stale one
+      uiDialogResolve = resolve;
+      $('uiDialogTitle').textContent = title;
+      const box = $('uiDialogFields');
+      box.innerHTML = '';
+      for (const f of fields) {
+        const label = document.createElement('label');
+        label.textContent = f.label;
+        const input = document.createElement('input');
+        input.id = 'uiF-' + f.id;
+        input.type = f.type || 'text';
+        if (f.placeholder) input.placeholder = f.placeholder;
+        if (f.value) input.value = f.value;
+        if (f.inputmode) input.inputMode = f.inputmode;
+        if (f.maxlength) input.maxLength = f.maxlength;
+        label.appendChild(input);
+        box.appendChild(label);
+      }
+      $('uiDialogOk').textContent = submitLabel;
+      $('uiDialog').classList.remove('hidden');
+      const first = box.querySelector('input');
+      if (first) { first.focus(); if (first.value) first.select(); }
+    });
+  }
+  function closeUiDialog(result) {
+    $('uiDialog').classList.add('hidden');
+    const r = uiDialogResolve;
+    uiDialogResolve = null;
+    if (r) r(result);
+  }
+  $('uiDialogCancel').addEventListener('click', () => closeUiDialog(null));
+  $('uiDialogOk').addEventListener('click', () => {
+    const values = {};
+    for (const input of $('uiDialogFields').querySelectorAll('input')) {
+      values[input.id.replace('uiF-', '')] = input.value.trim();
+    }
+    closeUiDialog(values);
+  });
+  $('uiDialogFields').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); $('uiDialogOk').click(); }
+  });
+
   // Save buttons lock while their request runs — a double-click must not
   // create two parties, playlists, or slides.
   function guardBtn(id, fn) {
@@ -453,10 +501,11 @@
         ren.className = 'btn tiny';
         ren.textContent = 'Edit';
         ren.title = 'Rename folder';
-        ren.addEventListener('click', () => {
-          const name = prompt('Folder name:', f.name);
-          if (!name) return;
-          api('/api/folders', { method: 'POST', body: JSON.stringify({ id: f.id, name }) })
+        ren.addEventListener('click', async () => {
+          const v = await uiPrompt({ title: 'Rename folder',
+            fields: [{ id: 'name', label: 'Folder name', value: f.name, maxlength: 40 }], submitLabel: 'Rename' });
+          if (!v || !v.name) return;
+          api('/api/folders', { method: 'POST', body: JSON.stringify({ id: f.id, name: v.name }) })
             .then(() => toast('Folder renamed')).catch(e => toast(e.message, true));
         });
         bar.appendChild(ren);
@@ -477,10 +526,11 @@
     const add = document.createElement('button');
     add.className = 'btn tiny';
     add.textContent = '+ New folder';
-    add.addEventListener('click', () => {
-      const name = prompt('Folder name:', 'Promotions');
-      if (!name) return;
-      api('/api/folders', { method: 'POST', body: JSON.stringify({ name }) })
+    add.addEventListener('click', async () => {
+      const v = await uiPrompt({ title: 'New folder',
+        fields: [{ id: 'name', label: 'Folder name', placeholder: 'Promotions', maxlength: 40 }], submitLabel: 'Create' });
+      if (!v || !v.name) return;
+      api('/api/folders', { method: 'POST', body: JSON.stringify({ name: v.name }) })
         .then(r => { currentFolder = r.folder.id; toast(`Folder "${r.folder.name}" created — uploads now land in it`); })
         .catch(e => toast(e.message, true));
     });
@@ -2010,7 +2060,10 @@
               await api(`/api/team/${m.id}`, { method: 'PATCH', body: JSON.stringify({ role: next }) });
               toast(`${m.name || m.email} is now ${next === 'owner' ? 'an owner' : 'staff'}`);
             } else if (act === 'password') {
-              const pw = prompt(`New password for ${m.email} (8+ characters):`);
+              const v = await uiPrompt({ title: `Reset password`,
+                fields: [{ id: 'pw', label: `New password for ${m.email} (8+ characters)`, type: 'password' }],
+                submitLabel: 'Change password' });
+              const pw = v && v.pw;
               if (!pw) return;
               await api(`/api/team/${m.id}`, { method: 'PATCH', body: JSON.stringify({ password: pw }) });
               toast('Password changed — they are signed out everywhere');
@@ -2150,7 +2203,10 @@
               await api(`/api/admin/users/${m.id}`, { method: 'PATCH', body: JSON.stringify({ role: m.role === 'owner' ? 'staff' : 'owner' }) });
               toast('Role updated');
             } else if (act === 'password') {
-              const pw = prompt(`New password for ${m.email} (8+ characters):`);
+              const v = await uiPrompt({ title: `Reset password`,
+                fields: [{ id: 'pw', label: `New password for ${m.email} (8+ characters)`, type: 'password' }],
+                submitLabel: 'Change password' });
+              const pw = v && v.pw;
               if (!pw) return;
               await api(`/api/admin/users/${m.id}`, { method: 'PATCH', body: JSON.stringify({ password: pw }) });
               toast('Password changed — they are signed out everywhere');
@@ -2174,13 +2230,15 @@
     addBtn.style.margin = '4px 0 12px';
     addBtn.textContent = '+ Add owner';
     addBtn.addEventListener('click', async () => {
-      const email = prompt(`Owner email for "${v.name}":`);
-      if (!email) return;
-      const pw = prompt('Temporary password (8+ characters):');
-      if (!pw) return;
+      const vals = await uiPrompt({ title: `Add owner to ${v.name}`,
+        fields: [
+          { id: 'email', label: 'Owner email', type: 'email', placeholder: 'owner@venue.com' },
+          { id: 'password', label: 'Temporary password (8+ characters)', type: 'password' }
+        ], submitLabel: 'Create account' });
+      if (!vals || !vals.email || !vals.password) return;
       try {
-        await api(`/api/admin/venues/${v.id}/owner`, { method: 'POST', body: JSON.stringify({ email, password: pw }) });
-        toast(`${email} can sign in to ${v.name} now`);
+        await api(`/api/admin/venues/${v.id}/owner`, { method: 'POST', body: JSON.stringify({ email: vals.email, password: vals.password }) });
+        toast(`${vals.email} can sign in to ${v.name} now`);
         renderPlatform();
       } catch (err) { toast(err.message, true); }
     });
@@ -2252,10 +2310,13 @@
   });
 
   $('changePwBtn').addEventListener('click', async () => {
-    const current = prompt('Current password:');
-    if (!current) return;
-    const next = prompt('New password (8+ characters):');
-    if (!next) return;
+    const vals = await uiPrompt({ title: 'Change my password',
+      fields: [
+        { id: 'current', label: 'Current password', type: 'password' },
+        { id: 'next', label: 'New password (8+ characters)', type: 'password' }
+      ], submitLabel: 'Change password' });
+    if (!vals || !vals.current || !vals.next) return;
+    const current = vals.current, next = vals.next;
     try {
       await api('/api/me/password', { method: 'POST', body: JSON.stringify({ current, next }) });
       toast('Password changed — your other devices are signed out');
@@ -2288,8 +2349,11 @@
     finally { sb.disabled = false; }
   });
 
-  $('claimBtn').addEventListener('click', () => {
-    const code = prompt('Enter the 6-digit code shown on the TV:');
+  $('claimBtn').addEventListener('click', async () => {
+    const v = await uiPrompt({ title: 'Add screen',
+      fields: [{ id: 'code', label: 'Enter the 6-digit code shown on the TV', inputmode: 'numeric', maxlength: 6, placeholder: '000000' }],
+      submitLabel: 'Add screen' });
+    const code = v && v.code;
     if (!code) return;
     api('/api/tvs/claim', { method: 'POST', body: JSON.stringify({ code }) })
       .then(r => toast(`Screen added as ${r.tv.name} — rename it after its room`))
