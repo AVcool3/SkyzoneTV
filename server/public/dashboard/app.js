@@ -23,7 +23,22 @@
         ...(opts.headers || {})
       }
     });
-    if (res.status === 401) { logout(); throw new Error('Logged out'); }
+    if (res.status === 401) {
+      // A dead SUPPORT token (grant revoked/expired) bounces the admin back
+      // to their own console instead of signing them out entirely.
+      const home = localStorage.getItem('parkcast.homeToken');
+      if (home && token !== home) {
+        localStorage.removeItem('parkcast.homeToken');
+        token = home;
+        localStorage.setItem('parkcast.token', token);
+        $('supportBanner').classList.add('hidden');
+        toast('Support session ended by the venue');
+        enterApp();
+        throw new Error('Support session ended');
+      }
+      logout();
+      throw new Error('Logged out');
+    }
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || res.statusText);
     return data;
@@ -75,7 +90,8 @@
     me = null;
     localStorage.removeItem('parkcast.token');
     localStorage.removeItem('skyzone.token');
-    localStorage.removeItem('parkcast.homeToken'); // legacy support-session key
+    localStorage.removeItem('parkcast.homeToken');
+    $('supportBanner').classList.add('hidden');
     if (ws) { ws.onclose = null; ws.close(); ws = null; }
     // Nothing venue-private survives into the next person's session on a
     // shared front-desk computer: no toast, no typed passwords, no rendered
@@ -188,7 +204,20 @@
     };
     ws.onclose = ev => {
       $('connDot').className = 'dot off';
-      if (ev.code === 4001) { logout(); return; }
+      if (ev.code === 4001) {
+        const home = localStorage.getItem('parkcast.homeToken');
+        if (home && token !== home) {
+          localStorage.removeItem('parkcast.homeToken');
+          token = home;
+          localStorage.setItem('parkcast.token', token);
+          $('supportBanner').classList.add('hidden');
+          toast('Support session ended by the venue');
+          enterApp();
+          return;
+        }
+        logout();
+        return;
+      }
       setTimeout(connectWs, wsDelay);
       wsDelay = Math.min(wsDelay * 1.7, 15000);
     };
@@ -235,6 +264,15 @@
     $('dayState').textContent = state.settings.dayStarted ? 'Day running' : 'Day ended — screens off';
     $('venueTag').textContent = state.settings.venueName || '';
     $('venueTagTop').textContent = state.settings.venueName || '';
+    const inSupport = !!localStorage.getItem('parkcast.homeToken');
+    $('supportBanner').classList.toggle('hidden', !inSupport);
+    if (inSupport) $('supportVenueName').textContent = state.settings.venueName || '';
+    const grant = state.settings.supportAccess;
+    $('supportGrantStatus').textContent = grant
+      ? `ParkCast support can work in this venue until ${fmtTime(grant.expiresAt)}.`
+      : 'Support has no access to this venue. Grant it only when you are working with ParkCast on a problem.';
+    $('supportGrantBtn').classList.toggle('hidden', !!grant);
+    $('supportRevokeBtn').classList.toggle('hidden', !grant);
     renderTvs();
     renderMedia();
     renderStudio();
@@ -2018,13 +2056,29 @@
       row.innerHTML = `
         <div class="team-id">
           <b>${esc(v.name)}${v.isDefault ? ' <span class="chip-home">HOME</span>' : ''}${v.suspended ? ' <span class="chip-suspended">SUSPENDED</span>' : ''}</b>
-          <span class="venue-stats">${v.screens} screen${v.screens === 1 ? '' : 's'} (${v.online} online) · ${v.members} member${v.members === 1 ? '' : 's'} · ${v.media} media · ${v.upcomingParties} upcoming part${v.upcomingParties === 1 ? 'y' : 'ies'}</span>
+          <span class="venue-stats">${v.screens} screen${v.screens === 1 ? '' : 's'} (${v.online} online) · ${v.members} member${v.members === 1 ? '' : 's'} · ${v.media} media · ${v.upcomingParties} upcoming part${v.upcomingParties === 1 ? 'y' : 'ies'}${v.supportUntil ? ` · <b style="color:var(--accent-strong)">support invited until ${fmtTime(v.supportUntil)}</b>` : ''}</span>
         </div>
         <button class="btn tiny" data-act="members">${pfOpenVenue === v.id ? 'Hide members' : 'Members'}</button>
+        ${v.supportUntil ? '<button class="btn tiny primary" data-act="open">Open (invited)</button>' : ''}
         ${v.isDefault ? '' : `<button class="btn tiny ${v.suspended ? '' : 'danger'}" data-act="susp">${v.suspended ? 'Resume' : 'Suspend'}</button>`}`;
       row.querySelector('[data-act="members"]').addEventListener('click', () => {
         pfOpenVenue = pfOpenVenue === v.id ? null : v.id;
         renderPlatform();
+      });
+      const openBtn = row.querySelector('[data-act="open"]');
+      if (openBtn) openBtn.addEventListener('click', async () => {
+        try {
+          const r = await api(`/api/admin/venues/${v.id}/enter`, { method: 'POST' });
+          if (!localStorage.getItem('parkcast.homeToken')) {
+            localStorage.setItem('parkcast.homeToken', token);
+          }
+          token = r.token;
+          localStorage.setItem('parkcast.token', token);
+          if (ws) { ws.onclose = null; ws.close(); ws = null; }
+          document.querySelector('.tab[data-tab="tvs"]').click();
+          toast(`Support session in ${r.venueName} — until ${fmtTime(r.expiresAt)} or until the owner revokes`);
+          enterApp();
+        } catch (err) { toast(err.message, true); }
       });
       const suspBtn = row.querySelector('[data-act="susp"]');
       if (suspBtn) suspBtn.addEventListener('click', async () => {
@@ -2156,6 +2210,35 @@
       renderPlatform();
     } catch (err) { toast(err.message, true); }
     finally { sb.disabled = false; }
+  });
+
+  $('supportReturnBtn').addEventListener('click', async () => {
+    const home = localStorage.getItem('parkcast.homeToken');
+    if (!home) return;
+    try { await api('/api/logout', { method: 'POST' }); } catch {}
+    localStorage.removeItem('parkcast.homeToken');
+    token = home;
+    localStorage.setItem('parkcast.token', token);
+    $('supportBanner').classList.add('hidden');
+    if (ws) { ws.onclose = null; ws.close(); ws = null; }
+    document.querySelector('.tab[data-tab="tvs"]').click();
+    enterApp().then(() => {
+      if (me && me.platformAdmin) document.querySelector('.tab[data-tab="platform"]').click();
+    });
+  });
+
+  $('supportGrantBtn').addEventListener('click', async () => {
+    if (!confirm('Give ParkCast support access to this venue for 24 hours? You can revoke it at any moment, and you can see it is active the whole time.')) return;
+    try {
+      const r = await api('/api/support-access', { method: 'POST', body: JSON.stringify({ hours: 24 }) });
+      toast(`Support access granted until ${fmtTime(r.expiresAt)}`);
+    } catch (err) { toast(err.message, true); }
+  });
+  $('supportRevokeBtn').addEventListener('click', async () => {
+    try {
+      await api('/api/support-access', { method: 'DELETE' });
+      toast('Support access revoked — any support session just ended');
+    } catch (err) { toast(err.message, true); }
   });
 
   $('venueForm').addEventListener('submit', async e => {

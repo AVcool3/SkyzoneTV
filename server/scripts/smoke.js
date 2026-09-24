@@ -622,14 +622,38 @@ const run = async () => {
   check('non-admin cannot provision venues',
     (await api(tokenB, 'POST', '/api/admin/venues', { name: 'X', ownerEmail: 'x@y.dev', ownerPassword: '12345678' })).status === 403);
 
-  // governance boundary: there is NO way into a vendor's workspace — the
-  // enter endpoint must not exist, and stats expose counts only
+  // governance boundary: no way into a vendor's workspace UNLESS its owner
+  // granted time-boxed support access — and the grant is fully in their hands
   const bId = adminList.data.venues.find(v => v.name === 'Smoke Venue B').id;
-  check('venue-enter capability does not exist',
-    (await api(token, 'POST', `/api/admin/venues/${bId}/enter`)).status === 404);
+  check('enter without a grant is refused',
+    (await api(token, 'POST', `/api/admin/venues/${bId}/enter`)).status === 403);
   const bRow = adminList.data.venues.find(v => v.id === bId);
   check('admin venue stats expose counts only',
     bRow.media === undefined || typeof bRow.media === 'number');
+
+  // vendor B's owner opens the door for one hour
+  const grant = await api(tokenB, 'POST', '/api/support-access', { hours: 1 });
+  check('owner grants support access', grant.status === 200 && !!grant.data.expiresAt);
+  const stateBGrant = await api(tokenB, 'GET', '/api/state');
+  check('grant is visible in the venue dashboard',
+    stateBGrant.data.settings.supportAccess?.expiresAt === grant.data.expiresAt);
+  check('admin list shows the invitation',
+    (await api(token, 'GET', '/api/admin/venues')).data.venues.find(v => v.id === bId).supportUntil === grant.data.expiresAt);
+
+  const enter = await api(token, 'POST', `/api/admin/venues/${bId}/enter`);
+  check('admin enters an inviting venue', enter.status === 200 && !!enter.data.token);
+  check('support session is scoped to that venue',
+    (await api(enter.data.token, 'GET', '/api/state')).data.settings?.venueName === 'Smoke Venue B');
+  check('non-admin cannot enter even with a grant',
+    (await api(tokenB, 'POST', `/api/admin/venues/${bId}/enter`)).status === 403);
+
+  // revocation kills the live support session instantly
+  const revoke = await api(tokenB, 'DELETE', '/api/support-access');
+  check('owner revokes support access', revoke.status === 200);
+  check('revocation kills the support session',
+    (await api(enter.data.token, 'GET', '/api/state')).status === 401);
+  check('enter after revocation is refused',
+    (await api(token, 'POST', `/api/admin/venues/${bId}/enter`)).status === 403);
 
   // account governance: list, role, password, disable, remove
   const bMembers = await api(token, 'GET', `/api/admin/venues/${bId}/members`);

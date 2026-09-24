@@ -62,6 +62,8 @@
     <span id="connDot" class="dot off" title="Live connection"></span>
     <span id="dayState" class="day-state"></span>
     <span id="venueTagTop" class="venue-top"></span>
+    <span id="supportBanner" class="support-banner hidden">Support session: <b id="supportVenueName"></b>
+      <button id="supportReturnBtn" class="btn tiny">Return</button></span>
     <span class="spacer"></span>
     <div class="head-actions">
       <button id="startDayBtn" class="btn small">Start day</button>
@@ -186,6 +188,13 @@
     </form>
     <p class="hint">The venue name shows on your screens; imported party times use this timezone.</p>
     <button id="changePwBtn" class="btn ghost" style="margin-top:10px">Change my password</button>
+
+    <h4 class="theme-h" style="margin-top:30px">ParkCast support</h4>
+    <div id="supportGrantBox" class="member-form" style="align-items:center">
+      <span id="supportGrantStatus" class="hint" style="flex:1 1 260px"></span>
+      <button id="supportGrantBtn" class="btn" type="button">Grant access for 24 hours</button>
+      <button id="supportRevokeBtn" class="btn danger hidden" type="button">Revoke access now</button>
+    </div>
   </section>
 
   <!-- Platform (admins): every vendor workspace on this server -->

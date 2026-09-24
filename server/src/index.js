@@ -73,7 +73,10 @@ function verifyPassword(password, stored) {
 const SESSION_TTL_MS = 30 * 86_400_000; // sessions expire after 30 days
 const TOKENS_PER_USER = 10;             // signing in on an 11th device evicts the oldest
 
-function issueToken(userId) {
+// `supportVenueId` marks a support session: an admin working inside a venue
+// whose owner granted time-boxed access. The token only works while that
+// grant is alive — revocation or expiry kills it mid-session.
+function issueToken(userId, supportVenueId = null) {
   const token = crypto.randomBytes(24).toString('hex');
   let tokens = store.data.settings.tokens;
   // Caps are per-user so one busy (or hostile) account can never evict
@@ -83,7 +86,7 @@ function issueToken(userId) {
     const drop = new Set(mine.slice(0, mine.length - TOKENS_PER_USER + 1).map(t => t.token));
     tokens = tokens.filter(t => !drop.has(t.token));
   }
-  tokens.push({ token, userId, createdAt: Date.now() });
+  tokens.push({ token, userId, ...(supportVenueId ? { venueId: supportVenueId, support: true } : {}), createdAt: Date.now() });
   while (tokens.length > 2000) tokens.shift();
   store.data.settings.tokens = tokens;
   store.save();
@@ -98,6 +101,21 @@ function sessionFor(token) {
     store.data.settings.tokens = store.data.settings.tokens.filter(t => t !== entry);
     store.save();
     return null;
+  }
+  if (entry.support) {
+    // A support session lives exactly as long as the vendor's grant does.
+    const v = store.venue(entry.venueId);
+    const grant = v?.supportAccess;
+    if (!grant || Date.parse(grant.expiresAt) <= Date.now()) {
+      store.data.settings.tokens = store.data.settings.tokens.filter(t => t !== entry);
+      store.save();
+      return null;
+    }
+    if (entry.userId !== 'legacy-admin') {
+      const admin = store.user(entry.userId);
+      if (!admin || admin.disabled === true || admin.platformAdmin !== true) return null;
+    }
+    return { userId: entry.userId, venueId: entry.venueId, support: true };
   }
   if (entry.userId === 'legacy-admin') {
     return { userId: 'legacy-admin', venueId: store.defaultVenueId() };
@@ -205,7 +223,9 @@ function dashboardSnapshot(venueId) {
       dayStarted: venue.dayStarted !== false,
       customThemes: venue.customThemes || [],
       venueName: venue.name,
-      tz: venue.tz || ''
+      tz: venue.tz || '',
+      supportAccess: venue.supportAccess && Date.parse(venue.supportAccess.expiresAt) > Date.now()
+        ? { expiresAt: venue.supportAccess.expiresAt } : null
     },
     serverTime: new Date().toISOString()
   };
@@ -579,6 +599,8 @@ app.get('/api/admin/venues', requireAuth, requireAdmin, (req, res) => {
       id: v.id, name: v.name, tz: v.tz || null,
       suspended: v.suspended === true,
       isDefault: v.id === store.defaultVenueId(),
+      supportUntil: v.supportAccess && Date.parse(v.supportAccess.expiresAt) > Date.now()
+        ? v.supportAccess.expiresAt : null,
       createdAt: v.createdAt,
       screens: tvs.length,
       online: tvs.filter(t => tvOnline(t.id)).length,
@@ -646,9 +668,21 @@ app.post('/api/admin/venues/:id/suspend', requireAuth, requireAdmin, (req, res) 
 });
 
 // Governance boundary: platform admins manage venues and ACCESS — never
-// content. There is deliberately no way to mint a session inside a vendor
-// venue, so vendor media, screens, playlists, and parties stay theirs alone
-// (the venue list above exposes counts only).
+// content. The ONE exception is vendor-granted support: a venue owner can
+// open their own door for a limited time (POST /api/support-access), and
+// only then — and only until it closes — can an admin work inside that
+// venue. Without a live grant, vendor media, screens, playlists, and
+// parties are unreachable (the venue list above exposes counts only).
+
+app.post('/api/admin/venues/:id/enter', requireAuth, requireAdmin, (req, res) => {
+  const v = store.venue(req.params.id);
+  if (!v) return res.status(404).json({ error: 'No such venue' });
+  const grant = v.supportAccess;
+  if (!grant || Date.parse(grant.expiresAt) <= Date.now()) {
+    return res.status(403).json({ error: 'This venue has not granted support access — ask the owner to grant it from their Team page' });
+  }
+  res.json({ token: issueToken(req.userId, v.id), venueName: v.name, expiresAt: grant.expiresAt });
+});
 
 app.get('/api/admin/venues/:id/members', requireAuth, requireAdmin, (req, res) => {
   const v = store.venue(req.params.id);
@@ -800,6 +834,14 @@ const PAIR_CODE_TTL = 15 * 60_000;
 const UNCLAIMED_TTL = 24 * 60 * 60_000;
 setInterval(() => {
   let changed = false;
+  // Expired support grants are tidied away (their tokens already stopped
+  // working the moment the expiry passed).
+  for (const v of store.data.venues) {
+    if (v.supportAccess && Date.parse(v.supportAccess.expiresAt) <= Date.now()) {
+      v.supportAccess = null;
+      changed = true;
+    }
+  }
   // Retention: finished parties carry children's first names — they don't
   // need to sit in the database forever. 30 days covers any dispute window.
   const cutoff = Date.now() - 30 * 86_400_000;
@@ -1413,6 +1455,42 @@ app.post('/api/settings', requireAuth, requireOwner, (req, res) => {
   res.json({ ok: true });
 });
 
+// ---- Support access: the vendor opens the door, and can close it ----
+// Grants ParkCast support time-boxed access to THIS venue's dashboard.
+// Only the venue's owner can grant or revoke; the grant is visible in the
+// venue's own dashboard the whole time, and revocation ends any support
+// session instantly.
+app.post('/api/support-access', requireAuth, requireOwner, (req, res) => {
+  let hours = parseFloat(req.body?.hours);
+  if (!Number.isFinite(hours)) hours = 24;
+  hours = Math.min(Math.max(hours, 1), 168); // 1 hour to 7 days
+  const venue = store.venue(req.venueId);
+  venue.supportAccess = {
+    grantedBy: req.userId,
+    grantedAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + hours * 3_600_000).toISOString()
+  };
+  store.save();
+  pushDashboards(req.venueId);
+  res.json({ ok: true, expiresAt: venue.supportAccess.expiresAt });
+});
+
+app.delete('/api/support-access', requireAuth, requireOwner, (req, res) => {
+  const venue = store.venue(req.venueId);
+  venue.supportAccess = null;
+  // Any live support session dies with the grant: drop its tokens and
+  // close its sockets right now.
+  const dropped = new Set(store.data.settings.tokens
+    .filter(t => t.support && t.venueId === req.venueId).map(t => t.token));
+  store.data.settings.tokens = store.data.settings.tokens.filter(t => !dropped.has(t.token));
+  for (const ws of dashboardSockets) {
+    if (ws.venueId === req.venueId && ws.supportSession) { try { ws.close(4001, 'support access revoked'); } catch {} }
+  }
+  store.save();
+  pushDashboards(req.venueId);
+  res.json({ ok: true });
+});
+
 // ---- Events ----
 const csvUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
@@ -1811,6 +1889,7 @@ wss.on('connection', ws => {
       ws.role = 'dashboard';
       ws.userId = session.userId;
       ws.venueId = session.venueId;
+      ws.supportSession = session.support === true;
       dashboardSockets.add(ws);
       ws.send(JSON.stringify(dashboardSnapshot(session.venueId)));
     } else if (msg.type === 'status' && ws.role === 'player' && ws.tvId) {

@@ -521,6 +521,13 @@ video::-webkit-media-controls-start-playback-button,
 video::-webkit-media-controls-overlay-play-button { display: none !important; -webkit-appearance: none; }
 
 /* ---- Platform (admin) ---- */
+.support-banner {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: var(--accent-soft); border: 1px solid #f0b48a; border-radius: 999px;
+  padding: 3px 6px 3px 12px; font-size: 13px; color: var(--accent-strong);
+}
+.support-banner b { font-weight: 700; }
+@media (max-width: 760px) { .support-banner { display: none; } }
 .pf-tiles { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
 .pf-tile {
   background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
