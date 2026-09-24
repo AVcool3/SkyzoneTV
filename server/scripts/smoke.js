@@ -595,6 +595,56 @@ const run = async () => {
   }
   await api(token, 'DELETE', `/api/team/${deskAdd.data.member.id}`);
 
+  // ---- platform administration: cross-vendor management ----
+  const meAdmin = await api(token, 'GET', '/api/me');
+  check('legacy admin is a platform admin', meAdmin.data.platformAdmin === true);
+  check('vendor owner is NOT a platform admin',
+    (await api(tokenB, 'GET', '/api/me')).data.platformAdmin !== true);
+
+  const adminList = await api(token, 'GET', '/api/admin/venues');
+  check('admin lists every venue with stats',
+    adminList.status === 200 && adminList.data.venues.some(v => v.isDefault) &&
+    adminList.data.venues.some(v => v.name === 'Smoke Venue B'));
+  check('non-admin cannot list venues', (await api(tokenB, 'GET', '/api/admin/venues')).status === 403);
+
+  // provision a venue with its owner account
+  let pvCreate = await api(token, 'POST', '/api/admin/venues', {
+    name: 'Smoke Platform Venue', ownerEmail: 'smoke-pv@test.dev', ownerPassword: 'pv-pass-9999'
+  });
+  check('admin provisions a venue (or it exists from a prior run)',
+    pvCreate.status === 200 || pvCreate.status === 400);
+  const pvId = (await api(token, 'GET', '/api/admin/venues')).data.venues
+    .find(v => v.name === 'Smoke Platform Venue')?.id;
+  check('provisioned venue appears in the list', !!pvId);
+  const pvIn = await api(null, 'POST', '/api/signin', { email: 'smoke-pv@test.dev', password: 'pv-pass-9999' });
+  check('provisioned owner can sign in', pvIn.status === 200 && !!pvIn.data.token);
+
+  check('non-admin cannot provision venues',
+    (await api(tokenB, 'POST', '/api/admin/venues', { name: 'X', ownerEmail: 'x@y.dev', ownerPassword: '12345678' })).status === 403);
+
+  // support session: same admin identity, scoped into another venue
+  const bId = adminList.data.venues.find(v => v.name === 'Smoke Venue B').id;
+  const enter = await api(token, 'POST', `/api/admin/venues/${bId}/enter`);
+  check('admin can open a venue for support', enter.status === 200 && !!enter.data.token);
+  const supState = await api(enter.data.token, 'GET', '/api/state');
+  check('support session is scoped to that venue', supState.data.settings?.venueName === 'Smoke Venue B');
+  check('non-admin cannot open venues', (await api(tokenB, 'POST', `/api/admin/venues/${bId}/enter`)).status === 403);
+
+  // suspension locks the dashboard out, immediately and at sign-in
+  const susp = await api(token, 'POST', `/api/admin/venues/${pvId}/suspend`, { suspended: true });
+  check('admin suspends a venue', susp.status === 200 && susp.data.suspended === true);
+  const lockedNow = await api(pvIn.data.token, 'GET', '/api/state');
+  check('suspension kills live sessions', lockedNow.status === 401 || lockedNow.status === 403);
+  check('suspended member cannot sign in',
+    (await api(null, 'POST', '/api/signin', { email: 'smoke-pv@test.dev', password: 'pv-pass-9999' })).status === 403);
+  check('default venue cannot be suspended',
+    (await api(token, 'POST', `/api/admin/venues/${adminList.data.venues.find(v => v.isDefault).id}/suspend`, { suspended: true })).status === 400);
+  await api(token, 'POST', `/api/admin/venues/${pvId}/suspend`, { suspended: false });
+  check('resume restores sign-in',
+    (await api(null, 'POST', '/api/signin', { email: 'smoke-pv@test.dev', password: 'pv-pass-9999' })).status === 200);
+  check('non-admin cannot suspend',
+    (await api(tokenB, 'POST', `/api/admin/venues/${pvId}/suspend`, { suspended: true })).status === 403);
+
   // cleanup: delete media + tvs created by this test
   await api(token, 'DELETE', `/api/media/${mediaId}`);
   state = (await api(token, 'GET', '/api/state')).data;

@@ -49,6 +49,7 @@
       <button class="tab" data-tab="events">Parties <span id="eventCount" class="pill"></span></button>
       <button class="tab" data-tab="themes">Themes <span id="themeCount" class="pill"></span></button>
       <button class="tab hidden" data-tab="team" id="teamTab">Team <span id="teamCount" class="pill"></span></button>
+      <button class="tab hidden" data-tab="platform" id="platformTab">Platform <span id="platformCount" class="pill"></span></button>
     </nav>
     <div class="nav-foot">
       <a class="btn ghost" href="mailto:srini.vanukuri@gmail.com?subject=ParkCast%20support">Support</a>
@@ -61,6 +62,8 @@
     <span id="connDot" class="dot off" title="Live connection"></span>
     <span id="dayState" class="day-state"></span>
     <span id="venueTagTop" class="venue-top"></span>
+    <span id="supportBanner" class="support-banner hidden">Support view: <b id="supportVenueName"></b>
+      <button id="supportReturnBtn" class="btn tiny">Return to Platform</button></span>
     <span class="spacer"></span>
     <div class="head-actions">
       <button id="startDayBtn" class="btn small">Start day</button>
@@ -185,6 +188,25 @@
     </form>
     <p class="hint">The venue name shows on your screens; imported party times use this timezone.</p>
     <button id="changePwBtn" class="btn ghost" style="margin-top:10px">Change my password</button>
+  </section>
+
+  <!-- Platform (admins): every vendor workspace on this server -->
+  <section id="tab-platform" class="tabpane hidden">
+    <div class="page-head">
+      <h1>Platform</h1>
+      <p>Every vendor workspace on this server — open one for support, or provision a new venue.</p>
+    </div>
+    <div class="pane-tools">
+      <button id="addVenueBtn" class="btn primary">+ New venue</button>
+    </div>
+    <form id="venueCreateForm" class="member-form hidden">
+      <input id="pvName" placeholder="Venue name" required maxlength="60">
+      <input id="pvEmail" type="email" placeholder="Owner email" required>
+      <input id="pvPassword" type="password" placeholder="Temporary password (8+ characters)" required minlength="8">
+      <button type="submit" class="btn primary">Create venue</button>
+      <button type="button" id="pvCancel" class="btn ghost">Cancel</button>
+    </form>
+    <div id="venueList" class="team-list" style="max-width:860px"></div>
   </section>
 
   <!-- Parties (bookings feed the takeovers; every parsed field stays editable) -->

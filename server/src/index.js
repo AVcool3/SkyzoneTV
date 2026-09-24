@@ -47,6 +47,15 @@ if (!ADMIN_PASSWORD) {
 // working. Players stay unauthenticated (they pair by code).
 // ---------------------------------------------------------------------------
 const OWNER_EMAIL = (process.env.OWNER_EMAIL || '').trim().toLowerCase();
+// The OWNER_EMAIL account runs the platform, even if it signed up before
+// the platform-admin flag existed.
+if (OWNER_EMAIL) {
+  const ownerUser = store.userByEmail(OWNER_EMAIL);
+  if (ownerUser && ownerUser.platformAdmin !== true) {
+    ownerUser.platformAdmin = true;
+    store.saveNow();
+  }
+}
 
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
@@ -64,7 +73,9 @@ function verifyPassword(password, stored) {
 const SESSION_TTL_MS = 30 * 86_400_000; // sessions expire after 30 days
 const TOKENS_PER_USER = 10;             // signing in on an 11th device evicts the oldest
 
-function issueToken(userId) {
+// `venueId` scopes a session into a venue other than the user's own — used
+// only for platform-admin support sessions ("Open venue" on the Platform page).
+function issueToken(userId, venueId = null) {
   const token = crypto.randomBytes(24).toString('hex');
   let tokens = store.data.settings.tokens;
   // Caps are per-user so one busy (or hostile) account can never evict
@@ -74,7 +85,7 @@ function issueToken(userId) {
     const drop = new Set(mine.slice(0, mine.length - TOKENS_PER_USER + 1).map(t => t.token));
     tokens = tokens.filter(t => !drop.has(t.token));
   }
-  tokens.push({ token, userId, createdAt: Date.now() });
+  tokens.push({ token, userId, ...(venueId ? { venueId } : {}), createdAt: Date.now() });
   while (tokens.length > 2000) tokens.shift();
   store.data.settings.tokens = tokens;
   store.save();
@@ -90,17 +101,35 @@ function sessionFor(token) {
     store.save();
     return null;
   }
+  // Support sessions carry an explicit venue; everyone else lands in their own.
+  const overrideVenue = entry.venueId && store.venue(entry.venueId) ? entry.venueId : null;
   if (entry.userId === 'legacy-admin') {
-    return { userId: 'legacy-admin', venueId: store.defaultVenueId() };
+    return { userId: 'legacy-admin', venueId: overrideVenue || store.defaultVenueId() };
   }
   const user = store.user(entry.userId);
-  return user ? { userId: user.id, venueId: user.venueId } : null;
+  return user ? { userId: user.id, venueId: overrideVenue || user.venueId } : null;
+}
+// Platform admins run the ParkCast service itself: they see every venue,
+// create and suspend workspaces, and can open any venue for support. The
+// flag is granted to the OWNER_EMAIL account and by existing admins only.
+function isPlatformAdmin(userId) {
+  return userId === 'legacy-admin' || store.user(userId)?.platformAdmin === true;
+}
+function requireAdmin(req, res, next) {
+  if (!isPlatformAdmin(req.userId)) return res.status(403).json({ error: 'Platform admins only' });
+  next();
 }
 function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : null;
   const session = sessionFor(token);
   if (!session) return res.status(401).json({ error: 'Not logged in' });
+  // A suspended venue keeps its screens playing but loses dashboard/API
+  // access for its members; platform admins still get in for support.
+  const venue = store.venue(session.venueId);
+  if (venue?.suspended && !isPlatformAdmin(session.userId)) {
+    return res.status(403).json({ error: 'This venue is suspended — contact ParkCast support' });
+  }
   req.userId = session.userId;
   req.venueId = session.venueId;
   next();
@@ -395,6 +424,8 @@ app.post('/api/signup', (req, res) => {
     name: String(name || '').trim().slice(0, 60),
     venueId,
     role: 'owner',
+    // Claiming the default venue means running the platform itself.
+    ...(claimsDefault ? { platformAdmin: true } : {}),
     createdAt: new Date().toISOString()
   };
   store.data.users.push(user);
@@ -410,8 +441,12 @@ app.post('/api/signin', (req, res) => {
   if (!user || typeof password !== 'string' || !verifyPassword(password, user.passHash)) {
     return res.status(401).json({ error: 'Wrong email or password' });
   }
+  const home = store.venue(user.venueId);
+  if (home?.suspended && user.platformAdmin !== true) {
+    return res.status(403).json({ error: 'This venue is suspended — contact ParkCast support' });
+  }
   loginAttempts.delete(req.ip);
-  res.json({ token: issueToken(user.id), venueName: store.venue(user.venueId)?.name || '' });
+  res.json({ token: issueToken(user.id), venueName: home?.name || '' });
 });
 
 app.get('/api/me', requireAuth, (req, res) => {
@@ -420,6 +455,7 @@ app.get('/api/me', requireAuth, (req, res) => {
     : store.user(req.userId);
   res.json({ email: user?.email || null, name: user?.name || '',
     role: user?.role || 'staff',
+    platformAdmin: isPlatformAdmin(req.userId),
     venueName: store.venue(req.venueId)?.name || '' });
 });
 
@@ -527,6 +563,101 @@ app.delete('/api/team/:id', requireAuth, requireOwner, (req, res) => {
   if (user.id === req.userId) return res.status(400).json({ error: 'You cannot remove yourself' });
   store.data.users = store.data.users.filter(u => u.id !== user.id);
   revokeSessions(user.id);
+  store.save();
+  res.json({ ok: true });
+});
+
+// ---- Platform administration (cross-vendor management) ----
+// The operator's console over every vendor workspace: list venues with
+// live stats, provision a venue with its owner account, suspend/resume,
+// and open any venue in a scoped support session.
+app.get('/api/admin/venues', requireAuth, requireAdmin, (req, res) => {
+  res.json({ venues: store.data.venues.map(v => {
+    const tvs = store.tvsOf(v.id);
+    return {
+      id: v.id, name: v.name, tz: v.tz || null,
+      suspended: v.suspended === true,
+      isDefault: v.id === store.defaultVenueId(),
+      createdAt: v.createdAt,
+      screens: tvs.length,
+      online: tvs.filter(t => tvOnline(t.id)).length,
+      members: store.data.users.filter(u => u.venueId === v.id).length,
+      media: store.mediaOf(v.id).length,
+      upcomingParties: store.eventsOf(v.id).filter(e => e.status === 'scheduled').length
+    };
+  }) });
+});
+
+app.post('/api/admin/venues', requireAuth, requireAdmin, (req, res) => {
+  const { name, ownerEmail, ownerPassword } = req.body || {};
+  if (!String(name || '').trim()) return res.status(400).json({ error: 'Venue needs a name' });
+  const cleanEmail = String(ownerEmail || '').trim().toLowerCase();
+  if (!EMAIL_RE.test(cleanEmail)) return res.status(400).json({ error: 'Enter a valid owner email' });
+  if (typeof ownerPassword !== 'string' || ownerPassword.length < 8) {
+    return res.status(400).json({ error: 'Owner password must be at least 8 characters' });
+  }
+  if (store.userByEmail(cleanEmail)) return res.status(400).json({ error: 'That email already has an account' });
+  if (store.data.users.length >= 500) return res.status(429).json({ error: 'Account limit reached' });
+  const v = {
+    id: crypto.randomUUID(),
+    name: String(name).trim().slice(0, 60),
+    dayStarted: true,
+    customThemes: [],
+    tz: null,
+    createdAt: new Date().toISOString()
+  };
+  store.data.venues.push(v);
+  store.data.users.push({
+    id: crypto.randomUUID(),
+    email: cleanEmail,
+    passHash: hashPassword(ownerPassword),
+    name: '',
+    venueId: v.id,
+    role: 'owner',
+    createdAt: new Date().toISOString()
+  });
+  store.save();
+  res.json({ ok: true, venue: { id: v.id, name: v.name } });
+});
+
+app.post('/api/admin/venues/:id/suspend', requireAuth, requireAdmin, (req, res) => {
+  const v = store.venue(req.params.id);
+  if (!v) return res.status(404).json({ error: 'No such venue' });
+  const suspend = req.body?.suspended === true;
+  if (suspend && v.id === store.defaultVenueId()) {
+    return res.status(400).json({ error: 'The platform home venue cannot suspend itself' });
+  }
+  v.suspended = suspend;
+  if (suspend) {
+    // Members are signed out everywhere immediately; the venue's screens
+    // deliberately keep playing — suspension is a dashboard/API lock, not
+    // a kill switch for TVs in a public space.
+    const memberIds = new Set(store.data.users
+      .filter(u => u.venueId === v.id && u.platformAdmin !== true)
+      .map(u => u.id));
+    store.data.settings.tokens = store.data.settings.tokens.filter(t => !memberIds.has(t.userId));
+    for (const ws of dashboardSockets) {
+      if (memberIds.has(ws.userId)) { try { ws.close(4001, 'venue suspended'); } catch {} }
+    }
+  }
+  store.save();
+  res.json({ ok: true, suspended: v.suspended });
+});
+
+app.post('/api/admin/venues/:id/enter', requireAuth, requireAdmin, (req, res) => {
+  const v = store.venue(req.params.id);
+  if (!v) return res.status(404).json({ error: 'No such venue' });
+  // A support session: the admin's own identity, scoped into this venue.
+  res.json({ token: issueToken(req.userId, v.id), venueName: v.name });
+});
+
+app.patch('/api/admin/users/:id', requireAuth, requireAdmin, (req, res) => {
+  const user = store.user(req.params.id);
+  if (!user) return res.status(404).json({ error: 'No such user' });
+  if (user.id === req.userId) return res.status(400).json({ error: 'You cannot change your own platform access' });
+  const { platformAdmin } = req.body || {};
+  if (typeof platformAdmin !== 'boolean') return res.status(400).json({ error: 'platformAdmin must be true or false' });
+  user.platformAdmin = platformAdmin;
   store.save();
   res.json({ ok: true });
 });

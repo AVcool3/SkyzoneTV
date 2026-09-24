@@ -75,6 +75,8 @@
     me = null;
     localStorage.removeItem('parkcast.token');
     localStorage.removeItem('skyzone.token');
+    localStorage.removeItem('parkcast.homeToken');
+    $('supportBanner').classList.add('hidden');
     if (ws) { ws.onclose = null; ws.close(); ws = null; }
     // Nothing venue-private survives into the next person's session on a
     // shared front-desk computer: no toast, no typed passwords, no rendered
@@ -165,6 +167,7 @@
     // The Team page (owner portal) only exists for owners.
     try { me = await api('/api/me'); } catch { me = null; }
     $('teamTab').classList.toggle('hidden', !(me && me.role === 'owner'));
+    $('platformTab').classList.toggle('hidden', !(me && me.platformAdmin));
     render(); // re-render now that the role is known (staff lose delete controls)
     connectWs();
     refreshRollerCard();
@@ -200,6 +203,7 @@
       document.querySelectorAll('.tabpane').forEach(p => p.classList.add('hidden'));
       $('tab-' + btn.dataset.tab).classList.remove('hidden');
       if (btn.dataset.tab === 'team') renderTeam(); // not in the live snapshot — fetched on entry
+      if (btn.dataset.tab === 'platform') renderPlatform();
     });
   });
 
@@ -232,6 +236,9 @@
     $('dayState').textContent = state.settings.dayStarted ? 'Day running' : 'Day ended — screens off';
     $('venueTag').textContent = state.settings.venueName || '';
     $('venueTagTop').textContent = state.settings.venueName || '';
+    const inSupport = !!localStorage.getItem('parkcast.homeToken');
+    $('supportBanner').classList.toggle('hidden', !inSupport);
+    if (inSupport) $('supportVenueName').textContent = state.settings.venueName || '';
     renderTvs();
     renderMedia();
     renderStudio();
@@ -1985,6 +1992,95 @@
       list.appendChild(row);
     }
   }
+
+  // ---------- Platform (admin) ----------
+  async function renderPlatform() {
+    let venues;
+    try { venues = (await api('/api/admin/venues')).venues; }
+    catch (err) { toast(err.message, true); return; }
+    $('platformCount').textContent = venues.length;
+    const list = $('venueList');
+    list.innerHTML = '';
+    for (const v of venues) {
+      const row = document.createElement('div');
+      row.className = 'team-row';
+      row.innerHTML = `
+        <div class="team-id">
+          <b>${esc(v.name)}${v.isDefault ? ' <span class="chip-home">HOME</span>' : ''}${v.suspended ? ' <span class="chip-suspended">SUSPENDED</span>' : ''}</b>
+          <span class="venue-stats">${v.screens} screen${v.screens === 1 ? '' : 's'} (${v.online} online) · ${v.members} member${v.members === 1 ? '' : 's'} · ${v.media} media · ${v.upcomingParties} upcoming part${v.upcomingParties === 1 ? 'y' : 'ies'}</span>
+        </div>
+        <button class="btn tiny" data-act="open">Open</button>
+        ${v.isDefault ? '' : `<button class="btn tiny ${v.suspended ? '' : 'danger'}" data-act="susp">${v.suspended ? 'Resume' : 'Suspend'}</button>`}`;
+      row.querySelector('[data-act="open"]').addEventListener('click', async () => {
+        try {
+          const r = await api(`/api/admin/venues/${v.id}/enter`, { method: 'POST' });
+          // Keep the way home before swapping into the support session —
+          // but never overwrite it when hopping venue-to-venue.
+          if (!localStorage.getItem('parkcast.homeToken')) {
+            localStorage.setItem('parkcast.homeToken', token);
+          }
+          token = r.token;
+          localStorage.setItem('parkcast.token', token);
+          if (ws) { ws.onclose = null; ws.close(); ws = null; }
+          document.querySelector('.tab[data-tab="tvs"]').click();
+          toast(`Support view: ${r.venueName}`);
+          enterApp();
+        } catch (err) { toast(err.message, true); }
+      });
+      const suspBtn = row.querySelector('[data-act="susp"]');
+      if (suspBtn) suspBtn.addEventListener('click', async () => {
+        const suspending = !v.suspended;
+        if (suspending && !confirm(`Suspend "${v.name}"? Its team is signed out and locked out until resumed. Screens keep playing.`)) return;
+        try {
+          await api(`/api/admin/venues/${v.id}/suspend`, { method: 'POST', body: JSON.stringify({ suspended: suspending }) });
+          toast(suspending ? `${v.name} suspended` : `${v.name} resumed`);
+          renderPlatform();
+        } catch (err) { toast(err.message, true); }
+      });
+      list.appendChild(row);
+    }
+  }
+
+  $('supportReturnBtn').addEventListener('click', async () => {
+    const home = localStorage.getItem('parkcast.homeToken');
+    if (!home) return;
+    // End the support session server-side, then go home.
+    try { await api('/api/logout', { method: 'POST' }); } catch {}
+    localStorage.removeItem('parkcast.homeToken');
+    token = home;
+    localStorage.setItem('parkcast.token', token);
+    $('supportBanner').classList.add('hidden');
+    if (ws) { ws.onclose = null; ws.close(); ws = null; }
+    document.querySelector('.tab[data-tab="tvs"]').click();
+    enterApp().then(() => {
+      if (me && me.platformAdmin) document.querySelector('.tab[data-tab="platform"]').click();
+    });
+  });
+
+  $('addVenueBtn').addEventListener('click', () => {
+    $('venueCreateForm').classList.toggle('hidden');
+    if (!$('venueCreateForm').classList.contains('hidden')) $('pvName').focus();
+  });
+  $('pvCancel').addEventListener('click', () => {
+    $('venueCreateForm').reset();
+    $('venueCreateForm').classList.add('hidden');
+  });
+  $('venueCreateForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const sb = e.target.querySelector('[type=submit]');
+    if (sb.disabled) return;
+    sb.disabled = true;
+    try {
+      const r = await api('/api/admin/venues', { method: 'POST', body: JSON.stringify({
+        name: $('pvName').value, ownerEmail: $('pvEmail').value, ownerPassword: $('pvPassword').value
+      }) });
+      $('venueCreateForm').reset();
+      $('venueCreateForm').classList.add('hidden');
+      toast(`"${r.venue.name}" created — send the owner their sign-in`);
+      renderPlatform();
+    } catch (err) { toast(err.message, true); }
+    finally { sb.disabled = false; }
+  });
 
   $('venueForm').addEventListener('submit', async e => {
     e.preventDefault();
