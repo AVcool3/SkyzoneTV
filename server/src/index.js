@@ -390,6 +390,8 @@ app.use('/media', express.static(MEDIA_DIR, { maxAge: '365d', immutable: true })
 app.use(express.static(path.join(ROOT, 'public')));
 // Clean privacy-policy URL (Play Console links to this).
 app.get('/privacy', (req, res) => res.sendFile(path.join(ROOT, 'public', 'privacy.html')));
+// Public data-deletion page (Google Play's App content section links here).
+app.get('/delete-account', (req, res) => res.sendFile(path.join(ROOT, 'public', 'delete-account.html')));
 // The sideload APK moved with the rebrand; old Downloader links keep working.
 app.get('/skyzone-player.apk', (req, res) => res.redirect(301, '/parkcast-player.apk'));
 
@@ -510,8 +512,10 @@ app.post('/api/me/password', requireAuth, (req, res) => {
   }
   const { current, next } = req.body || {};
   const user = store.user(req.userId);
+  // 400, not 401: the session is valid — the password is a confirmation,
+  // and a 401 would make the dashboard sign the typist out.
   if (!user || typeof current !== 'string' || !verifyPassword(current, user.passHash)) {
-    return res.status(401).json({ error: 'Current password is wrong' });
+    return res.status(400).json({ error: 'Current password is wrong' });
   }
   if (typeof next !== 'string' || next.length < 8) {
     return res.status(400).json({ error: 'New password must be at least 8 characters' });
@@ -521,6 +525,93 @@ app.post('/api/me/password', requireAuth, (req, res) => {
   store.data.settings.tokens = store.data.settings.tokens.filter(
     t => t.userId !== user.id || t.token === keep);
   store.save();
+  res.json({ ok: true });
+});
+
+// Erase a venue and EVERYTHING in it: uploaded files from disk, screens
+// (sockets closed so the TVs fall back to pairing), playlists, parties,
+// member accounts, and their sessions. Deletion is immediate — there is
+// no soft-delete copy kept.
+function deleteVenueDeep(venueId) {
+  const d = store.data;
+  for (const m of d.media.filter(x => x.venueId === venueId)) {
+    if (!m.slide && !m.comp) { try { fs.unlinkSync(path.join(MEDIA_DIR, (m.fileId || m.id) + m.ext)); } catch {} }
+  }
+  for (const tv of d.tvs.filter(t => t.venueId === venueId)) {
+    for (const ws of playerSockets.get(tv.id) || []) { try { ws.close(); } catch {} }
+    playerSockets.delete(tv.id);
+  }
+  const memberIds = new Set(d.users.filter(u => u.venueId === venueId).map(u => u.id));
+  d.media = d.media.filter(x => x.venueId !== venueId);
+  d.tvs = d.tvs.filter(x => x.venueId !== venueId);
+  d.playlists = d.playlists.filter(x => x.venueId !== venueId);
+  d.folders = d.folders.filter(x => x.venueId !== venueId);
+  d.events = d.events.filter(x => x.venueId !== venueId);
+  d.users = d.users.filter(u => u.venueId !== venueId);
+  d.settings.tokens = d.settings.tokens.filter(t => !memberIds.has(t.userId) && t.venueId !== venueId);
+  d.venues = d.venues.filter(v => v.id !== venueId);
+  for (const ws of dashboardSockets) {
+    if (ws.venueId === venueId) { try { ws.close(4001, 'venue deleted'); } catch {} }
+  }
+  store.save();
+}
+
+// Self-service account deletion (Play data-deletion policy, honored
+// in-product): the account, its sessions, and — when it is the venue's
+// last account — the venue and all its content are erased immediately.
+app.delete('/api/me', requireAuth, (req, res) => {
+  if (req.userId === 'legacy-admin') {
+    return res.status(400).json({ error: 'The admin login is managed in the server environment' });
+  }
+  const user = store.user(req.userId);
+  const { password, deleteVenue } = req.body || {};
+  // 400, not 401 — see /api/me/password.
+  if (!user || typeof password !== 'string' || !verifyPassword(password, user.passHash)) {
+    return res.status(400).json({ error: 'Enter your current password to confirm' });
+  }
+  const others = store.data.users.filter(u => u.venueId === user.venueId && u.id !== user.id);
+  if (others.length > 0) {
+    if (user.role === 'owner' && !others.some(u => u.role === 'owner')) {
+      return res.status(400).json({ error: 'Make another member an owner first — a venue cannot lose its only owner' });
+    }
+    store.data.users = store.data.users.filter(u => u.id !== user.id);
+    revokeSessions(user.id);
+    store.save();
+    return res.json({ ok: true });
+  }
+  // Last account in the venue.
+  if (user.venueId === store.defaultVenueId()) {
+    // The platform home venue itself stays (the env admin still runs it).
+    store.data.users = store.data.users.filter(u => u.id !== user.id);
+    revokeSessions(user.id);
+    store.save();
+    return res.json({ ok: true });
+  }
+  if (deleteVenue !== true) {
+    return res.status(400).json({ error: 'LAST_ACCOUNT: deleting this account also deletes the venue and everything in it — confirm to continue' });
+  }
+  revokeSessions(user.id);
+  deleteVenueDeep(user.venueId);
+  res.json({ ok: true });
+});
+
+// The owner erases the whole venue — every screen, file, playlist, party,
+// and account in it. Password plus the typed venue name gate it.
+app.delete('/api/venue', requireAuth, requireOwner, (req, res) => {
+  if (req.venueId === store.defaultVenueId()) {
+    return res.status(400).json({ error: 'The platform home venue cannot be deleted' });
+  }
+  const user = req.userId === 'legacy-admin' ? null : store.user(req.userId);
+  const { password, confirmName } = req.body || {};
+  // 400, not 401 — see /api/me/password.
+  if (!user || typeof password !== 'string' || !verifyPassword(password, user.passHash)) {
+    return res.status(400).json({ error: 'Enter your current password to confirm' });
+  }
+  const venue = store.venue(req.venueId);
+  if (normalizeLabel(confirmName) !== normalizeLabel(venue.name)) {
+    return res.status(400).json({ error: 'Type the venue name exactly to confirm' });
+  }
+  deleteVenueDeep(req.venueId);
   res.json({ ok: true });
 });
 

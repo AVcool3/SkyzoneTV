@@ -475,6 +475,13 @@ select.ev-theme { width: auto; min-width: 112px; }
 }
 .nav-foot { margin-top: auto; display: flex; flex-direction: column; gap: 2px; }
 .nav-foot .btn { justify-content: flex-start; font-size: 13.5px; }
+/* Account deletion stays reachable for every role (staff have no Team tab),
+   but reads as fine print, not as a daily action. */
+.danger-quiet {
+  background: none; border: none; cursor: pointer; text-align: left;
+  padding: 6px 12px; font-size: 12px; color: var(--muted);
+}
+.danger-quiet:hover { color: var(--danger, #dc2626); text-decoration: underline; }
 /* On phones the sidebar collapses to a bottom tab bar, so venue identity and
    sign-out move into the topbar instead of disappearing. */
 .venue-top, #signoutBtnTop { display: none; }

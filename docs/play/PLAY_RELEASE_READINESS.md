@@ -49,8 +49,13 @@ GOOGLE_REVIEWER_INSTRUCTIONS, STORE_LISTING.
   no longer prints an env-configured ADMIN_PASSWORD to retained logs.
 - Finished parties auto-purge after 30 days (children's names don't sit
   in the database indefinitely).
+- Self-service data deletion is live: any dashboard user can delete their
+  own account, an owner can erase the whole venue (files, screens,
+  playlists, parties, accounts, sessions — immediate, no soft-delete),
+  and the public how-to page at `/delete-account` is the URL to give the
+  Data safety form's deletion field.
 - Privacy policy consistent with behavior (UnlimitedFun LLC's operation
-  of the default server is now stated plainly).
+  of the default server is now stated plainly; links /delete-account).
 - MANUAL: owner signs off the two documented judgment calls — the
   "Device or other IDs" declaration and "encrypted in transit: Yes" with
   the LAN-mode rationale (DATA_SAFETY_AUDIT.md).

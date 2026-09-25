@@ -719,6 +719,68 @@ const run = async () => {
   check('non-admin cannot suspend',
     (await api(tokenB, 'POST', `/api/admin/venues/${pvId}/suspend`, { suspended: true })).status === 403);
 
+  // ---- self-service data deletion (Play data-deletion policy) ----
+  // Scenario 1: a lone vendor deletes their account — the venue dies with it.
+  const delEmail = 'smoke-del@test.dev';
+  const delPass = 'del-pass-9999';
+  let delUp = await api(null, 'POST', '/api/signup', { venue: 'Smoke Del Venue', name: 'Del', email: delEmail, password: delPass });
+  if (delUp.status === 400) {
+    // leftover from an interrupted run — erase and start clean
+    const oldIn = await api(null, 'POST', '/api/signin', { email: delEmail, password: delPass });
+    if (oldIn.status === 200) await api(oldIn.data.token, 'DELETE', '/api/me', { password: delPass, deleteVenue: true });
+    delUp = await api(null, 'POST', '/api/signup', { venue: 'Smoke Del Venue', name: 'Del', email: delEmail, password: delPass });
+  }
+  check('deletion venue signup', delUp.status === 200 && !!delUp.data.token);
+  const delTok = delUp.data.token;
+  const delForm = new FormData();
+  delForm.append('file', new Blob([new Uint8Array(800)], { type: 'image/png' }), 'smoke-del.png');
+  const delMedia = await fetch(BASE + '/api/media', {
+    method: 'POST', headers: { Authorization: 'Bearer ' + delTok }, body: delForm
+  }).then(r => r.json());
+  check('deletion venue upload', !!delMedia.media?.url);
+  check('self-delete needs the right password',
+    (await api(delTok, 'DELETE', '/api/me', { password: 'wrong-pass-1' })).status === 400);
+  const lastNoFlag = await api(delTok, 'DELETE', '/api/me', { password: delPass });
+  check('last account without confirm flag warns',
+    lastNoFlag.status === 400 && /LAST_ACCOUNT/.test(lastNoFlag.data.error || ''));
+  check('last account with confirm flag deletes the venue',
+    (await api(delTok, 'DELETE', '/api/me', { password: delPass, deleteVenue: true })).status === 200);
+  check('deleted account cannot sign in',
+    (await api(null, 'POST', '/api/signin', { email: delEmail, password: delPass })).status === 401);
+  check('deleted session is revoked', (await api(delTok, 'GET', '/api/state')).status === 401);
+  check('deleted venue file is gone from disk', (await fetch(BASE + delMedia.media.url)).status === 404);
+  check('deleted venue gone from admin list',
+    !(await api(token, 'GET', '/api/admin/venues')).data.venues.some(v => v.name === 'Smoke Del Venue'));
+
+  // Scenario 2: a venue with members — staff self-delete works, a venue
+  // cannot lose its only owner, and the owner can erase the whole venue.
+  const dv2Email = 'smoke-del2@test.dev', dv2Pass = 'del2-pass-9999';
+  let dv2Up = await api(null, 'POST', '/api/signup', { venue: 'Smoke Del Venue 2', name: 'Own', email: dv2Email, password: dv2Pass });
+  if (dv2Up.status === 400) {
+    const oldIn = await api(null, 'POST', '/api/signin', { email: dv2Email, password: dv2Pass });
+    if (oldIn.status === 200) await api(oldIn.data.token, 'DELETE', '/api/venue', { password: dv2Pass, confirmName: 'Smoke Del Venue 2' });
+    dv2Up = await api(null, 'POST', '/api/signup', { venue: 'Smoke Del Venue 2', name: 'Own', email: dv2Email, password: dv2Pass });
+  }
+  const dv2Tok = dv2Up.data.token;
+  await api(dv2Tok, 'POST', '/api/team', { name: 'Staffy', email: 'smoke-del2-staff@test.dev', password: 'del2-staff-99', role: 'staff' });
+  check('sole owner with members cannot self-delete',
+    (await api(dv2Tok, 'DELETE', '/api/me', { password: dv2Pass })).status === 400);
+  const dv2Staff = await api(null, 'POST', '/api/signin', { email: 'smoke-del2-staff@test.dev', password: 'del2-staff-99' });
+  check('staff self-delete works',
+    (await api(dv2Staff.data.token, 'DELETE', '/api/me', { password: 'del2-staff-99' })).status === 200);
+  check('venue delete needs the exact name',
+    (await api(dv2Tok, 'DELETE', '/api/venue', { password: dv2Pass, confirmName: 'Wrong Name' })).status === 400);
+  check('owner erases the whole venue (name match is case/space-tolerant)',
+    (await api(dv2Tok, 'DELETE', '/api/venue', { password: dv2Pass, confirmName: 'smoke del venue 2' })).status === 200);
+  check('erased venue owner cannot sign in',
+    (await api(null, 'POST', '/api/signin', { email: dv2Email, password: dv2Pass })).status === 401);
+
+  // Guards: the env-managed admin login and the platform home venue stay.
+  check('legacy admin cannot self-delete',
+    (await api(token, 'DELETE', '/api/me', { password: PASSWORD })).status === 400);
+  check('platform home venue cannot be deleted',
+    (await api(token, 'DELETE', '/api/venue', { password: PASSWORD, confirmName: state.settings.venueName })).status === 400);
+
   // cleanup: delete media + tvs created by this test
   await api(token, 'DELETE', `/api/media/${mediaId}`);
   state = (await api(token, 'GET', '/api/state')).data;

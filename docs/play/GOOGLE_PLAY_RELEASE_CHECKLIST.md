@@ -175,9 +175,11 @@ it — under-declaring is the #1 cause of Data safety enforcement.
       distributed.
 - [ ] "Provides a way to request deletion": **Yes** — an operator deletes the
       screen (and its ID) from the dashboard at any time; uninstalling clears
-      everything on-device; the privacy policy documents a 30-day deletion
-      contact. Point the deletion field at
-      `https://parkcast.onrender.com/privacy`.
+      everything on-device; dashboard users delete their own account (and a
+      venue owner the whole venue) in-product; the privacy policy documents a
+      30-day deletion contact as fallback. Point the deletion field at
+      `https://parkcast.onrender.com/delete-account` (public step-by-step
+      instructions, served by the app's own server).
 - [ ] Consistency check: the privacy policy's "Data we collect" section says
       "no personal information" and then separately discloses the screen
       identifier under "What the app transmits" — the Data safety form above

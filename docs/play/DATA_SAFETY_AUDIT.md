@@ -91,13 +91,20 @@ genuinely needs cleartext capability.)*
 
 ### "Do you provide a way for users to request that their data is deleted?"
 
-**Answer: Yes.**
+**Answer: Yes.** Public instructions page: **https://parkcast.onrender.com/delete-account**
+(served by the app's own server at `/delete-account`; use it for the Data safety form's
+deletion-URL field).
 - On-device: uninstall/Clear data removes everything (SharedPreferences + localStorage
   + cache — PRIVACY_DATA_INVENTORY.md §2).
 - Server-side: the venue owner deletes a screen from the dashboard, which removes the
-  row including the UUID and nowPlaying (server/src/index.js:697-709); unclaimed screens
-  auto-expire after 24 h (index.js:611, 617). The privacy policy commits to deletion
-  requests within 30 days with a contact address (privacy.html:56-62, 74).
+  row including the UUID and nowPlaying; unclaimed screens auto-expire after 24 h.
+- Self-service, in-product: any dashboard user deletes their own account
+  (`DELETE /api/me`, password-confirmed; the venue's last account tears down the whole
+  venue — files unlinked from disk, screens/playlists/parties/accounts/sessions
+  removed), and an owner can erase the entire venue (`DELETE /api/venue`,
+  password + typed venue name). Deletion is immediate; no soft-delete copy is kept.
+- The privacy policy links /delete-account and still commits to e-mailed deletion
+  requests within 30 days as a fallback.
 
 ### Ephemeral-processing option
 
@@ -147,20 +154,18 @@ answer that the app does not allow account creation. The pairing code is not an
 account: it is a rotating (15-min, index.js:610, 618-624), server-generated claim token
 displayed on screen, holding no user data.
 
-**Web dashboard (out of Play scope, but the gap is real):** accounts exist there —
-email + scrypt-hashed password (index.js:51-62, 391-399), 30-day expiring sessions
-(index.js:64, 88-92), server-side logout (index.js:428-433), owner/staff roles
-(index.js:112-116, 493). Deletion today: an **owner can delete other members**
-(index.js:524-532) with immediate session revocation (index.js:465-470), but
-**owners cannot delete themselves** (index.js:527: "You cannot remove yourself") and
-there is **no self-service account deletion or venue deletion** — an owner wanting out
-must email the operator contact. Since the dashboard is a website, Play's policy does
-not bite, but GDPR/CCPA erasure duties and basic hygiene do. Eventually the web product
-needs: (a) self-service owner account deletion with a last-owner/venue-teardown flow,
-(b) a documented erasure path for venue data (events with children's names, media,
-users), and (c) automatic purging of `status: 'done'` events after a retention window —
-today they persist until manually cleared (index.js:1432; scheduler.js only flips
-status, never deletes).
+**Web dashboard (out of Play scope) — gap CLOSED:** accounts exist there —
+email + scrypt-hashed password, 30-day expiring sessions, server-side logout,
+owner/staff roles. The three erasure paths this audit originally called for now
+exist: (a) **self-service account deletion** ("Delete my account" in the dashboard
+sidebar → `DELETE /api/me`, password-confirmed, with a last-account/venue-teardown
+flow and a promote-another-owner-first guard), (b) **self-service venue erasure**
+("Delete this venue" on the Team page → `DELETE /api/venue`, password + typed venue
+name, deletes every file, screen, playlist, party, account, and session in the
+venue — documented publicly at `/delete-account`), and (c) **automatic purging of
+`status: 'done'` events after 30 days** in the server's maintenance sweep. The
+platform home venue and the env-managed legacy admin login are excluded (managed in
+the server environment).
 
 ---
 

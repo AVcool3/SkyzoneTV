@@ -2323,6 +2323,40 @@
     } catch (err) { toast(err.message, true); }
   });
 
+  // Self-service data deletion (documented publicly at /delete-account).
+  // The venue's last account is warned that the venue dies with it.
+  $('deleteAccountBtn').addEventListener('click', async () => {
+    const v = await uiPrompt({ title: 'Delete my account',
+      fields: [{ id: 'pw', label: 'Deleting your account is permanent. Enter your password to confirm.', type: 'password' }],
+      submitLabel: 'Delete my account' });
+    const pw = v && v.pw;
+    if (!pw) return;
+    const del = body => api('/api/me', { method: 'DELETE', body: JSON.stringify(body) });
+    try {
+      await del({ password: pw });
+    } catch (err) {
+      if (!String(err.message).startsWith('LAST_ACCOUNT')) { toast(err.message, true); return; }
+      if (!confirm('Yours is the last account here, so deleting it also deletes the venue — every screen, file, playlist, and party. This cannot be undone. Delete everything?')) return;
+      try { await del({ password: pw, deleteVenue: true }); }
+      catch (e2) { toast(e2.message, true); return; }
+    }
+    logout();
+  });
+
+  $('deleteVenueBtn').addEventListener('click', async () => {
+    const venueName = state?.settings?.venueName || '';
+    const v = await uiPrompt({ title: 'Delete this venue',
+      fields: [
+        { id: 'name', label: `This erases everything in "${venueName}" for everyone. Type the venue name to confirm.`, placeholder: venueName },
+        { id: 'pw', label: 'Your password', type: 'password' }
+      ], submitLabel: 'Delete venue' });
+    if (!v || !v.name || !v.pw) return;
+    try {
+      await api('/api/venue', { method: 'DELETE', body: JSON.stringify({ confirmName: v.name, password: v.pw }) });
+    } catch (err) { toast(err.message, true); return; }
+    logout(); // the server also closed this venue's sockets — everyone is out
+  });
+
   $('addMemberBtn').addEventListener('click', () => {
     $('memberForm').classList.toggle('hidden');
     if (!$('memberForm').classList.contains('hidden')) $('tmName').focus();

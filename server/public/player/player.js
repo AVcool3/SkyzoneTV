@@ -288,7 +288,9 @@
       // Waiting for dashboard approval (cloud mode): show the pairing code.
       show('idle');
       idleName.textContent = msg.pairCode ? `Code ${msg.pairCode}` : (msg.tv && msg.tv.name) || '';
-      idleConn.textContent = '';
+      // The pairing screen is the app's only lasting UI, so the privacy
+      // policy link lives here (Play policy: reachable from within the app).
+      idleConn.textContent = `Privacy policy: ${location.origin}/privacy`;
       document.getElementById('idleHint').textContent =
         'Open your ParkCast dashboard, press "+ Add screen", and type in this code.';
       reportStatus();

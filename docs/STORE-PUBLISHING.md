@@ -57,7 +57,8 @@ that personal accounts have, so the path is: fill in app content → submit →
      shared, purpose: app functionality, encrypted in transit, deletion
      supported** (the app sends a persistent random screen id plus playback
      status to the ParkCast server; that is a device-scoped identifier, so
-     "no data collected" would under-declare). No other data types. See
+     "no data collected" would under-declare). No other data types. Deletion
+     instructions URL: `https://parkcast.onrender.com/delete-account`. See
      docs/play/DATA_SAFETY_AUDIT.md for the full question-by-question walk.
    - **Ads**: none. **Content rating** (IARC): utility, suitable for all.
    - **Target audience**: 18+ / "not designed for children" — it's an
