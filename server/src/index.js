@@ -369,7 +369,7 @@ const bootedAt = Date.now();
 const ASSET_VERSION = (() => {
   try {
     const h = crypto.createHash('sha1');
-    for (const f of ['player/index.html', 'player/player.js', 'player/birthday.js']) {
+    for (const f of ['player/index.html', 'player/player.js', 'player/birthday.js', 'player/sw.js']) {
       h.update(fs.readFileSync(path.join(ROOT, 'public', f)));
     }
     return h.digest('hex').slice(0, 10);

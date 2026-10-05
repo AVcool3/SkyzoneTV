@@ -205,6 +205,17 @@
           assetVersion = msg.assetVersion;
         }
         applyState(msg);
+        // Tell the cache which files this screen's state references (every
+        // /media/ url in the push: playlist, designs, overrides) so it can
+        // drop the rest, and remember the state so a reboot with no internet
+        // can resume this loop from the cache.
+        try {
+          const urls = (e.data.match(/"\/media\/[^"]+"/g) || []).map(s => s.slice(1, -1));
+          if (urls.length && navigator.serviceWorker && navigator.serviceWorker.controller) {
+            navigator.serviceWorker.controller.postMessage({ type: 'retain', urls });
+          }
+          if (msg.approved !== false) localStorage.setItem('parkcast.lastState', e.data);
+        } catch {}
       }
       else if (msg.type === 'reregister') {
         try {
@@ -577,14 +588,40 @@
   document.addEventListener('visibilitychange', () => { if (!document.hidden) keepAwake(); });
 
   // --- boot --------------------------------------------------------------
+  // Cache media on-device so loops stop re-downloading from the server
+  // (venue video loops were costing hundreds of GB of egress per month).
+  // Secure contexts only — a plain-http LAN setup skips it, where repeat
+  // traffic is free anyway. The player works identically without it.
+  if ('serviceWorker' in navigator && window.isSecureContext) {
+    try {
+      navigator.serviceWorker.register('/player/sw.js').catch(() => {});
+      if (navigator.storage && navigator.storage.persist) {
+        navigator.storage.persist().catch(() => {});
+      }
+    } catch {}
+  }
+
   (async function boot() {
     show('idle');
     idleName.textContent = 'Connecting…';
     keepAwake();
     let ok = await register();
+    let offlineResumed = false;
     while (!ok) {
       idleConn.textContent = 'Cannot reach server — retrying…';
       idleConn.classList.add('bad');
+      // No internet, but we know what this screen was playing: resume the
+      // loop from the on-device cache while retrying in the background.
+      if (!offlineResumed) {
+        try {
+          const saved = JSON.parse(localStorage.getItem('parkcast.lastState') || 'null');
+          if (saved) {
+            delete saved.override; // a party takeover is time-boxed — never replay it stale
+            applyState(saved);
+            offlineResumed = true;
+          }
+        } catch {}
+      }
       await new Promise(r => setTimeout(r, 3000));
       ok = await register();
     }

@@ -64,6 +64,12 @@ Any Ubuntu VPS (DigitalOcean, Lightsail, Hetzner):
 - Media file URLs are unguessable (random 128-bit ids) but not logged-in-only;
   don't upload anything confidential.
 - Login is rate-limited (10 attempts / 15 min per IP).
+- Bandwidth: screens cache every media file on-device (service worker), so a
+  file is downloaded once per TV and then loops from local storage — without
+  this, one TV looping a 100 MB video 12 h/day is ~24 GB/day of egress.
+  Expect each file to cost roughly 2× its size per TV on its first cycle
+  (stream + the cached copy), then nothing. Keeping videos at 1080p instead
+  of raw phone 4K still pays: smaller first downloads, less device storage.
 - One instance now serves MANY venues: each vendor signs up on the landing
   page and gets an isolated workspace (their own screens, media, playlists,
   parties, and team). Set `OWNER_EMAIL` before sharing the URL so the
