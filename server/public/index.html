@@ -156,22 +156,6 @@
   .hw li::before { content: '✓'; position: absolute; left: 0; color: var(--accent); font-weight: 800; }
   .hw .note { margin-top: 16px; font-size: 13.5px; color: var(--dim); border-top: 1px solid var(--line); padding-top: 14px; }
 
-  /* pricing */
-  .price-card {
-    margin-top: 40px; background: linear-gradient(160deg, #1f1f24 0%, #18181c 100%);
-    border: 1px solid var(--line); border-radius: var(--r-l);
-    padding: 42px 40px; display: flex; gap: 40px; align-items: center; flex-wrap: wrap;
-  }
-  .price-big { font-size: 64px; font-weight: 800; letter-spacing: -0.03em; line-height: 1; }
-  .price-big small { font-size: 18px; font-weight: 600; color: var(--muted); letter-spacing: 0; }
-  .price-left { flex: 0 0 auto; }
-  .price-left .per { color: var(--muted); margin-top: 6px; font-size: 15px; }
-  .price-right { flex: 1 1 320px; }
-  .price-right ul { list-style: none; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 24px; }
-  .price-right li { color: var(--muted); font-size: 14.5px; padding-left: 24px; position: relative; }
-  .price-right li::before { content: '✓'; position: absolute; left: 0; color: var(--accent); font-weight: 800; }
-  .price-right .fine { margin-top: 18px; color: var(--dim); font-size: 13.5px; }
-
   /* closing */
   .closing { text-align: center; padding: 100px 0 90px; }
   .closing .cta { margin-top: 26px; }
@@ -195,7 +179,6 @@
     .tvframe { position: relative; right: auto; bottom: auto; width: 86%; margin: -40px auto 0; }
     .tag.right { bottom: auto; top: -14px; }
     .stage { padding-bottom: 0; }
-    .price-right ul { grid-template-columns: 1fr; }
     section { padding-top: 72px; }
   }
 </style>
@@ -338,33 +321,6 @@
         </ul>
         <div class="note">No special hardware to buy from us — a ~$25 stick turns any
         TV in the building into a managed screen.</div>
-      </div>
-    </div>
-  </section>
-
-  <section id="pricing">
-    <div class="wrap">
-      <div class="sec-head">
-        <div class="kicker">Pricing</div>
-        <h2>One price per venue. That's the whole table.</h2>
-      </div>
-      <div class="price-card">
-        <div class="price-left">
-          <div class="price-big">$99<small>/month</small></div>
-          <div class="per">per venue — not per screen</div>
-        </div>
-        <div class="price-right">
-          <ul>
-            <li>Unlimited screens</li>
-            <li>Automatic party takeovers</li>
-            <li>Built-in board designer</li>
-            <li>Playlists &amp; scheduling</li>
-            <li>Team accounts with roles</li>
-            <li>Hands-on setup help</li>
-          </ul>
-          <div class="fine">Early-access pricing, billed directly — no card needed to start.
-          Multiple locations? <a href="mailto:srini.vanukuri@gmail.com?subject=ParkCast%20multi-location" style="color:var(--muted)">Email us</a> for a per-location rate.</div>
-        </div>
       </div>
     </div>
   </section>
