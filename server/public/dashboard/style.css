@@ -32,13 +32,54 @@ code { background: var(--panel2); padding: 2px 6px; border-radius: 6px; font-siz
 .logo span { color: var(--accent); }
 .logo.small { font-size: 23px; }
 
-/* ---- Login ---- */
-#login { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
-.login-card {
-  background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
-  padding: 36px 32px; width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 16px;
-  text-align: center; box-shadow: 0 10px 34px rgba(24, 24, 27, 0.07);
+/* ---- Login ----
+   The login shares the landing page's charcoal + orange identity; the app
+   behind it stays light. Everything dark is scoped under #login. */
+#login {
+  display: flex; align-items: center; justify-content: center; min-height: 100vh;
+  padding: 32px 20px; background: #121214;
 }
+.login-card {
+  background: #1b1b1f; border: 1px solid rgba(255,255,255,0.07); border-radius: 16px;
+  padding: 38px 34px 28px; width: 100%; max-width: 420px; display: flex; flex-direction: column;
+  text-align: left; color: #f4f4f5; box-shadow: 0 30px 70px rgba(0, 0, 0, 0.5);
+}
+.login-card .logo { color: #f4f4f5; font-size: 24px; }
+.auth-title { font-size: 25px; font-weight: 800; letter-spacing: -0.02em; margin-top: 22px; }
+.auth-sub { color: #a1a1aa; font-size: 14.5px; margin-top: 6px; margin-bottom: 24px; }
+.login-card .field {
+  display: block; font-size: 13.5px; font-weight: 600; color: #d4d4d8; text-align: left;
+}
+.login-card .field small { color: #71717a; font-weight: 500; }
+.login-card .field input {
+  margin-top: 6px; background: #121216; color: #f4f4f5;
+  border: 1px solid rgba(255,255,255,0.14); border-radius: 10px;
+  padding: 11px 13px; font-size: 15px;
+}
+.login-card .field input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+.pw-wrap { position: relative; display: block; }
+.pw-wrap input { padding-right: 62px; }
+.pw-toggle {
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%); margin-top: 3px;
+  background: none; border: none; color: #a1a1aa; font-size: 12.5px; font-weight: 700;
+  cursor: pointer; padding: 6px 8px;
+}
+.pw-toggle:hover { color: #f4f4f5; }
+.login-card .btn.primary { height: 44px; border-radius: 10px; font-size: 15px; margin-top: 6px; }
+.login-card .error { min-height: 18px; margin-top: 10px; text-align: center; color: #fda4af; }
+.auth-switch { text-align: center; font-size: 14px; color: #a1a1aa; margin-top: 4px; }
+.linklike {
+  background: none; border: none; color: var(--accent); font-size: 14px; font-weight: 700;
+  cursor: pointer; padding: 0; text-decoration: underline; text-underline-offset: 3px;
+}
+.auth-help {
+  margin-top: 22px; border-top: 1px solid rgba(255,255,255,0.07); padding-top: 16px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.auth-help p { font-size: 12.5px; color: #71717a; line-height: 1.5; }
+.auth-help b { color: #a1a1aa; }
+.auth-help a { color: #a1a1aa; }
+.login-card .back-home { margin-top: 18px; text-align: center; color: #71717a; }
 input, select {
   background: var(--panel); color: var(--text); border: 1px solid var(--border-strong);
   border-radius: 8px; padding: 10px 12px; font-size: 15px; width: 100%;
@@ -461,13 +502,7 @@ select.ev-theme { width: auto; min-width: 112px; }
 }
 
 /* ---- Auth card / sidebar identity ---- */
-.auth-tabs { display: flex; gap: 4px; background: var(--panel2); border-radius: 10px; padding: 4px; }
-.auth-tab {
-  flex: 1; background: none; border: none; padding: 9px; border-radius: 8px;
-  font-size: 14px; font-weight: 700; color: var(--muted); cursor: pointer;
-}
-.auth-tab.active { background: var(--panel); color: var(--text); box-shadow: 0 1px 4px rgba(24,24,27,0.08); }
-.auth-form { display: flex; flex-direction: column; gap: 10px; }
+.auth-form { display: flex; flex-direction: column; gap: 14px; }
 .login-card a.hint { text-decoration: none; }
 .venue-tag {
   padding: 2px 8px 10px; font-size: 13px; font-weight: 600; color: var(--muted);

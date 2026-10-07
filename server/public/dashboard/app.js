@@ -160,17 +160,42 @@
     $('login').classList.remove('hidden');
   }
 
-  // Sign in / Sign up tabs; /dashboard/#signup preselects the signup form.
+  // Sign in / Sign up views; /dashboard/#signup preselects the signup form.
+  // Returning users get the primary card, signup lives behind one link.
   function showAuthTab(which) {
-    $('tabSignin').classList.toggle('active', which === 'signin');
-    $('tabSignup').classList.toggle('active', which === 'signup');
-    $('signinForm').classList.toggle('hidden', which !== 'signin');
-    $('signupForm').classList.toggle('hidden', which !== 'signup');
+    const signup = which === 'signup';
+    $('signinForm').classList.toggle('hidden', signup);
+    $('signupForm').classList.toggle('hidden', !signup);
+    $('switchToSignup').classList.toggle('hidden', signup);
+    $('switchToSignin').classList.toggle('hidden', !signup);
+    $('authTitle').textContent = signup ? 'Create your venue' : 'Sign in to ParkCast';
+    $('authSub').textContent = signup
+      ? 'A free workspace for your venue — your first screen can be live in minutes.'
+      : "Manage your venue's screens, playlists, and parties.";
     $('loginError').textContent = '';
   }
   $('tabSignin').addEventListener('click', () => showAuthTab('signin'));
   $('tabSignup').addEventListener('click', () => showAuthTab('signup'));
   if (location.hash === '#signup') showAuthTab('signup');
+  // Landing-page links can land on an ALREADY-OPEN dashboard tab, where only
+  // the hash changes and no reload happens — switch the form then too.
+  window.addEventListener('hashchange', () => {
+    if (location.hash === '#signup') showAuthTab('signup');
+    else if (location.hash === '#signin') showAuthTab('signin');
+  });
+
+  // Show/hide password — the browser's a11y tree gets a proper state too.
+  document.querySelectorAll('.pw-toggle').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.preventDefault(); // the button sits inside the field's <label>
+      const input = btn.parentElement.querySelector('input');
+      const show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      btn.textContent = show ? 'Hide' : 'Show';
+      btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+      input.focus();
+    });
+  });
 
   let authBusy = false;
   async function authenticate(path, body) {

@@ -15,24 +15,49 @@
 <div id="login" class="view">
   <div class="login-card">
     <div class="logo">PARK<span>CAST</span></div>
-    <div class="auth-tabs">
-      <button id="tabSignin" class="auth-tab active" type="button">Sign in</button>
-      <button id="tabSignup" class="auth-tab" type="button">Sign up</button>
-    </div>
+    <h1 id="authTitle" class="auth-title">Sign in to ParkCast</h1>
+    <p id="authSub" class="auth-sub">Manage your venue's screens, playlists, and parties.</p>
     <form id="signinForm" class="auth-form">
-      <input id="siEmail" type="email" placeholder="Email" autocomplete="email" required>
-      <input id="siPassword" type="password" placeholder="Password" autocomplete="current-password" required>
+      <label class="field" for="siEmail">Email
+        <input id="siEmail" type="email" placeholder="you@yourvenue.com" autocomplete="email" required>
+      </label>
+      <label class="field" for="siPassword">Password
+        <span class="pw-wrap">
+          <input id="siPassword" type="password" autocomplete="current-password" required>
+          <button type="button" class="pw-toggle" aria-label="Show password">Show</button>
+        </span>
+      </label>
       <button type="submit" class="btn primary wide">Sign in</button>
     </form>
     <form id="signupForm" class="auth-form hidden">
-      <input id="suVenue" placeholder="Venue name" required maxlength="60">
-      <input id="suName" placeholder="Your name" maxlength="60">
-      <input id="suEmail" type="email" placeholder="Email" autocomplete="email" required>
-      <input id="suPassword" type="password" placeholder="Password (8+ characters)" autocomplete="new-password" required minlength="8">
-      <button type="submit" class="btn primary wide">Create workspace</button>
+      <label class="field" for="suVenue">Venue name
+        <input id="suVenue" placeholder="e.g. Skyline Trampoline Park" required maxlength="60">
+      </label>
+      <label class="field" for="suName">Your name
+        <input id="suName" autocomplete="name" maxlength="60">
+      </label>
+      <label class="field" for="suEmail">Email
+        <input id="suEmail" type="email" autocomplete="email" required>
+      </label>
+      <label class="field" for="suPassword">Password <small>(8+ characters)</small>
+        <span class="pw-wrap">
+          <input id="suPassword" type="password" autocomplete="new-password" required minlength="8">
+          <button type="button" class="pw-toggle" aria-label="Show password">Show</button>
+        </span>
+      </label>
+      <button type="submit" class="btn primary wide">Create your venue</button>
     </form>
-    <div id="loginError" class="error"></div>
-    <a class="hint" href="/">Back to parkcast home</a>
+    <div id="loginError" class="error" role="alert"></div>
+    <div class="auth-switch">
+      <span id="switchToSignup">New to ParkCast? <button id="tabSignup" class="linklike" type="button">Create your venue</button></span>
+      <span id="switchToSignin" class="hidden">Already have an account? <button id="tabSignin" class="linklike" type="button">Sign in</button></span>
+    </div>
+    <div class="auth-help">
+      <p><b>Joining an existing venue?</b> A venue owner adds you from their Team page — ask them for an invite.</p>
+      <p><b>Forgot your password?</b> Any owner at your venue can reset it from Team.
+      Owners: <a href="mailto:srini.vanukuri@gmail.com?subject=ParkCast%20password%20reset">email support</a>.</p>
+    </div>
+    <a class="hint back-home" href="/">← Back to ParkCast home</a>
   </div>
 </div>
 

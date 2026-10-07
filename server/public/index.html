@@ -2,101 +2,404 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>ParkCast</title>
+<title>ParkCast — digital signage for entertainment venues</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Run every screen in your venue from one dashboard. Unlimited screens, one price per venue, automatic birthday takeovers.">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon.png" sizes="48x48" type="image/png">
 <style>
+  /* One system: charcoal + orange, radii 10/16, 4px spacing grid. */
   :root {
-    --bg: #fafafa; --panel: #ffffff; --border: #e4e4e7; --text: #18181b;
-    --muted: #71717a; --accent: #ea580c; --accent-strong: #c2410c; --blue: #2563eb;
+    --bg: #121214; --panel: #1b1b1f; --panel2: #232329;
+    --text: #f4f4f5; --muted: #a1a1aa; --dim: #71717a;
+    --accent: #f97316; --accent-deep: #ea580c; --accent-soft: rgba(249,115,22,0.12);
+    --line: rgba(255,255,255,0.07);
+    --r-s: 10px; --r-l: 16px;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
   body {
     background: var(--bg); color: var(--text);
     font-family: 'Segoe UI', Roboto, -apple-system, Arial, sans-serif;
-    font-size: 16px; line-height: 1.5; min-height: 100vh;
-    display: flex; flex-direction: column;
+    font-size: 16px; line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
   }
-  header {
-    display: flex; align-items: center; gap: 12px; padding: 18px 28px;
-    background: var(--panel); border-bottom: 1px solid var(--border);
-  }
-  .logo { font-weight: 800; letter-spacing: 0.04em; font-size: 24px; }
-  .logo span { color: var(--accent); }
-  .spacer { flex: 1; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+  a { color: inherit; }
+
+  /* buttons: two styles, one height */
   .btn {
     display: inline-flex; align-items: center; justify-content: center;
-    background: var(--panel); color: var(--text); border: 1px solid #d4d4d8;
-    border-radius: 8px; padding: 10px 18px; font-size: 15px; font-weight: 600;
-    cursor: pointer; text-decoration: none; transition: background 0.15s;
+    height: 44px; padding: 0 22px; border-radius: var(--r-s);
+    font-size: 15px; font-weight: 700; text-decoration: none; cursor: pointer;
+    border: 1px solid var(--line); color: var(--text); background: var(--panel2);
+    transition: background .15s, border-color .15s, transform .15s;
     white-space: nowrap;
   }
-  .btn:hover { background: #f4f4f5; }
-  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .btn.primary:hover { background: var(--accent-strong); }
-  main { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 72px 20px 40px; text-align: center; }
-  h1 { font-size: clamp(30px, 6vw, 46px); font-weight: 800; letter-spacing: -0.01em; max-width: 640px; }
-  .sub { color: var(--muted); font-size: 18px; margin-top: 12px; max-width: 520px; }
-  .cta { display: flex; gap: 12px; margin-top: 30px; flex-wrap: wrap; justify-content: center; }
-  .cta .btn { padding: 13px 26px; font-size: 16px; }
-  .trio {
-    display: flex; gap: 14px; margin-top: 64px; flex-wrap: wrap; justify-content: center; max-width: 860px;
+  .btn:hover { background: #2b2b33; }
+  .btn.primary { background: var(--accent-deep); border-color: var(--accent-deep); color: #fff; }
+  .btn.primary:hover { background: var(--accent); border-color: var(--accent); }
+  .btn.big { height: 50px; padding: 0 28px; font-size: 16px; }
+
+  header {
+    position: sticky; top: 0; z-index: 10;
+    background: rgba(18,18,20,0.88); backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--line);
   }
-  .trio div {
-    flex: 1 1 240px; background: var(--panel); border: 1px solid var(--border);
-    border-radius: 12px; padding: 20px; text-align: left;
+  header .wrap { display: flex; align-items: center; gap: 14px; height: 64px; }
+  .logo { font-weight: 800; letter-spacing: 0.04em; font-size: 22px; text-decoration: none; }
+  .logo span { color: var(--accent); }
+  .spacer { flex: 1; }
+  header .ghost { background: none; border-color: transparent; color: var(--muted); }
+  header .ghost:hover { color: var(--text); background: none; }
+
+  .kicker {
+    font-size: 12px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--accent);
   }
-  .trio b { display: block; font-size: 16px; margin-bottom: 4px; }
-  .trio span { color: var(--muted); font-size: 14px; }
-  #contact {
-    margin-top: 72px; background: var(--panel); border: 1px solid var(--border);
-    border-radius: 14px; padding: 30px 34px; max-width: 560px; width: 100%;
+  h1 {
+    font-size: clamp(36px, 5.6vw, 58px); font-weight: 800;
+    letter-spacing: -0.03em; line-height: 1.04; margin-top: 14px;
   }
-  #contact h2 { font-size: 20px; font-weight: 800; }
-  #contact p { color: var(--muted); font-size: 15px; margin-top: 6px; }
-  #contact .btn { margin-top: 16px; }
+  h2 { font-size: clamp(26px, 3.4vw, 36px); font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
+  .sub { color: var(--muted); font-size: 19px; margin-top: 18px; max-width: 560px; }
+
+  /* hero */
+  .hero { padding: 76px 0 0; text-align: center; }
+  .hero .sub { margin-left: auto; margin-right: auto; }
+  .cta { display: flex; gap: 12px; margin-top: 30px; justify-content: center; flex-wrap: wrap; }
+  .cta-note { margin-top: 12px; color: var(--dim); font-size: 13.5px; }
+
+  /* the product: dashboard in a browser frame, TV overlapping it */
+  .stage { position: relative; margin: 64px auto 0; max-width: 980px; padding-bottom: 120px; }
+  .browser {
+    border-radius: var(--r-l); overflow: hidden; border: 1px solid var(--line);
+    box-shadow: 0 30px 80px rgba(0,0,0,0.55);
+    background: #0c0c0e;
+  }
+  .browser .bar {
+    display: flex; align-items: center; gap: 6px; padding: 11px 14px;
+    background: #202026; border-bottom: 1px solid var(--line);
+  }
+  .browser .bar i { width: 11px; height: 11px; border-radius: 50%; background: #3f3f46; }
+  .browser .bar .url {
+    margin-left: 10px; font-size: 12px; color: var(--dim);
+    background: #121216; border-radius: 6px; padding: 3px 12px;
+  }
+  .browser img { display: block; width: 100%; height: auto; }
+  .tvframe {
+    position: absolute; right: -8px; bottom: 0; width: min(46%, 430px);
+    border-radius: 12px; border: 6px solid #000; outline: 1px solid #333;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.65); overflow: hidden; background: #000;
+  }
+  .tvframe img { display: block; width: 100%; height: auto; }
+  .tvframe::after {
+    content: ''; position: absolute; left: 50%; bottom: -26px; width: 90px; height: 20px;
+  }
+  .tag {
+    position: absolute; font-size: 12.5px; font-weight: 700; letter-spacing: 0.04em;
+    color: var(--text); background: var(--panel2); border: 1px solid var(--line);
+    padding: 6px 12px; border-radius: 999px;
+  }
+  .tag.left { left: 10px; top: -16px; }
+  .tag.right { right: 6px; bottom: 148px; z-index: 2; }
+  .tag b { color: var(--accent); }
+
+  .proof {
+    margin-top: 40px; text-align: center; color: var(--dim); font-size: 14.5px;
+  }
+  .proof b { color: var(--muted); font-weight: 600; }
+
+  section { padding: 92px 0 0; }
+  .sec-head { max-width: 640px; }
+  .sec-head .sub { font-size: 17px; margin-top: 12px; }
+
+  /* party sequence */
+  .seq { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px; margin-top: 40px; }
+  .step {
+    background: var(--panel); border-radius: var(--r-l); overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+  .step img { width: 100%; display: block; aspect-ratio: 16/9; object-fit: cover; object-position: top left; }
+  .step .cap { padding: 16px 18px 20px; }
+  .step .n { color: var(--accent); font-weight: 800; font-size: 13px; letter-spacing: 0.1em; }
+  .step b { display: block; font-size: 16px; margin-top: 6px; }
+  .step span { color: var(--muted); font-size: 14px; display: block; margin-top: 4px; }
+
+  /* value grid */
+  .vals { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px; margin-top: 40px; }
+  .val { background: var(--panel); border-radius: var(--r-l); padding: 26px 24px; }
+  .val .ico {
+    width: 40px; height: 40px; border-radius: 10px; background: var(--accent-soft);
+    display: flex; align-items: center; justify-content: center; font-size: 20px;
+  }
+  .val b { display: block; font-size: 17px; margin-top: 14px; }
+  .val p { color: var(--muted); font-size: 14.5px; margin-top: 6px; }
+
+  /* setup steps */
+  .setup { display: grid; grid-template-columns: 1.05fr 1fr; gap: 48px; align-items: center; }
+  .steps { display: flex; flex-direction: column; gap: 0; margin-top: 34px; }
+  .srow { display: flex; gap: 18px; padding: 18px 0; border-top: 1px solid var(--line); }
+  .srow:last-child { border-bottom: 1px solid var(--line); }
+  .srow .num {
+    flex: 0 0 34px; height: 34px; border-radius: 50%; background: var(--accent-soft);
+    color: var(--accent); font-weight: 800; display: flex; align-items: center; justify-content: center;
+  }
+  .srow b { display: block; font-size: 15.5px; }
+  .srow span { color: var(--muted); font-size: 14px; }
+  .hw {
+    background: var(--panel); border-radius: var(--r-l); padding: 28px 26px;
+  }
+  .hw b { font-size: 16px; }
+  .hw ul { list-style: none; margin-top: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .hw li { color: var(--muted); font-size: 14.5px; padding-left: 24px; position: relative; }
+  .hw li::before { content: '✓'; position: absolute; left: 0; color: var(--accent); font-weight: 800; }
+  .hw .note { margin-top: 16px; font-size: 13.5px; color: var(--dim); border-top: 1px solid var(--line); padding-top: 14px; }
+
+  /* pricing */
+  .price-card {
+    margin-top: 40px; background: linear-gradient(160deg, #1f1f24 0%, #18181c 100%);
+    border: 1px solid var(--line); border-radius: var(--r-l);
+    padding: 42px 40px; display: flex; gap: 40px; align-items: center; flex-wrap: wrap;
+  }
+  .price-big { font-size: 64px; font-weight: 800; letter-spacing: -0.03em; line-height: 1; }
+  .price-big small { font-size: 18px; font-weight: 600; color: var(--muted); letter-spacing: 0; }
+  .price-left { flex: 0 0 auto; }
+  .price-left .per { color: var(--muted); margin-top: 6px; font-size: 15px; }
+  .price-right { flex: 1 1 320px; }
+  .price-right ul { list-style: none; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 24px; }
+  .price-right li { color: var(--muted); font-size: 14.5px; padding-left: 24px; position: relative; }
+  .price-right li::before { content: '✓'; position: absolute; left: 0; color: var(--accent); font-weight: 800; }
+  .price-right .fine { margin-top: 18px; color: var(--dim); font-size: 13.5px; }
+
+  /* closing */
+  .closing { text-align: center; padding: 100px 0 90px; }
+  .closing .cta { margin-top: 26px; }
+
   footer {
-    padding: 20px 28px; color: var(--muted); font-size: 13px;
-    display: flex; gap: 16px; justify-content: center; border-top: 1px solid var(--border);
+    border-top: 1px solid var(--line); padding: 26px 0; color: var(--dim); font-size: 13.5px;
   }
-  footer a { color: var(--muted); }
+  footer .wrap { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+  footer a { color: var(--dim); text-decoration: none; }
+  footer a:hover { color: var(--muted); }
+
+  @media (max-width: 560px) {
+    /* the header must fit a phone: the login link lives in the footer too */
+    header .ghost { display: none; }
+    header .btn.primary { height: 38px; padding: 0 14px; font-size: 14px; }
+    .logo { font-size: 19px; }
+  }
+  @media (max-width: 880px) {
+    .seq, .vals { grid-template-columns: 1fr; }
+    .setup { grid-template-columns: 1fr; gap: 30px; }
+    .tvframe { position: relative; right: auto; bottom: auto; width: 86%; margin: -40px auto 0; }
+    .tag.right { bottom: auto; top: -14px; }
+    .stage { padding-bottom: 0; }
+    .price-right ul { grid-template-columns: 1fr; }
+    section { padding-top: 72px; }
+  }
 </style>
 </head>
 <body>
-  <header>
-    <div class="logo">PARK<span>CAST</span></div>
+
+<header>
+  <div class="wrap">
+    <a class="logo" href="/">PARK<span>CAST</span></a>
     <span class="spacer"></span>
-    <a class="btn" href="/dashboard/#signin">Sign in</a>
-    <a class="btn primary" href="/dashboard/#signup">Sign up</a>
-  </header>
+    <a class="btn ghost" href="/dashboard/#signin">Sign in</a>
+    <a class="btn primary" href="/dashboard/#signup">Start your venue</a>
+  </div>
+</header>
 
-  <main>
-    <h1>Every screen in your venue, run from one place</h1>
-    <p class="sub">Playlists, promos, and automatic birthday-party takeovers — on the TVs you already own.</p>
+<main>
+  <div class="hero wrap">
+    <div class="kicker">Digital signage for entertainment venues</div>
+    <h1>Every screen in your venue,<br>run from one place</h1>
+    <p class="sub">Playlists, promos, and automatic birthday-party takeovers —
+    on the TVs you already own. No per-screen fees, ever.</p>
     <div class="cta">
-      <a class="btn primary" href="/dashboard/#signup">Sign up</a>
-      <a class="btn" href="/dashboard/#signin">Sign in</a>
+      <a class="btn primary big" href="/dashboard/#signup">Start your venue</a>
+      <a class="btn big" href="#parties">See how it works</a>
+    </div>
+    <div class="cta-note">Self-serve setup — your first screen can be live in minutes.</div>
+
+    <div class="stage">
+      <span class="tag left">What <b>you</b> control</span>
+      <div class="browser">
+        <div class="bar"><i></i><i></i><i></i><span class="url">parkcast.onrender.com/dashboard</span></div>
+        <img src="/landing/dashboard.jpg" alt="The ParkCast dashboard: three named screens online, each looping the venue's playlist" width="1440" height="620">
+      </div>
+      <span class="tag right">What <b>guests</b> see</span>
+      <div class="tvframe">
+        <img src="/landing/takeover.jpg" alt="A venue TV during a birthday takeover: 'Happy 10th Birthday, Nathan!' with balloons and confetti" width="1280" height="720">
+      </div>
     </div>
 
-    <div class="trio">
-      <div><b>Unlimited screens</b><span>One price per venue. Need another TV? Plug it in.</span></div>
-      <div><b>Party takeovers</b><span>The birthday kid's name on the right room's screen, automatically.</span></div>
-      <div><b>Built-in designer</b><span>Compose photos, video, and text into boards — live on screens instantly.</span></div>
-    </div>
+    <p class="proof">Runs all day, every day at a <b>Midwest trampoline park</b> —
+    the dashboard and TV above are real, running screenshots, not mockups.</p>
+  </div>
 
-    <div id="contact">
-      <h2>Deployment support</h2>
-      <p>Setting up a venue, migrating from another system, or connecting your booking platform — we help directly.</p>
-      <a class="btn primary" href="mailto:srini.vanukuri@gmail.com?subject=ParkCast%20deployment%20support">Contact us</a>
-      <p style="margin-top:10px;font-size:13px">srini.vanukuri@gmail.com</p>
+  <section id="parties">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="kicker">Party takeovers</div>
+        <h2>The birthday kid's name, on the right room's screen, at party time</h2>
+        <p class="sub">Type the booking in once — or import it — and the takeover runs itself.
+        Staff never touch a TV.</p>
+      </div>
+      <div class="seq">
+        <div class="step">
+          <img src="/landing/parties.jpg" alt="The Parties page: Nathan's party scheduled in Party Room A at 4:30 PM">
+          <div class="cap">
+            <span class="n">STEP 1</span>
+            <b>The party is booked</b>
+            <span>Each booking gets a room, a time, and a theme. One click to start early.</span>
+          </div>
+        </div>
+        <div class="step">
+          <img src="/landing/takeover.jpg" alt="The Party Room A screen taken over: Happy 10th Birthday, Nathan!">
+          <div class="cap">
+            <span class="n">STEP 2</span>
+            <b>At party time, the room's screen changes</b>
+            <span>A personalized welcome — name, age, theme, confetti — exactly when the party starts.</span>
+          </div>
+        </div>
+        <div class="step">
+          <img src="/landing/loop.jpg" alt="The screen back on the venue's regular promo loop">
+          <div class="cap">
+            <span class="n">STEP 3</span>
+            <b>Then everything goes back to normal</b>
+            <span>When the slot ends, the screen returns to its regular playlist on its own.</span>
+          </div>
+        </div>
+      </div>
     </div>
-  </main>
+  </section>
 
-  <footer>
+  <section>
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="kicker">Built for venues</div>
+        <h2>Everything a venue floor actually needs</h2>
+      </div>
+      <div class="vals">
+        <div class="val">
+          <div class="ico">📺</div>
+          <b>Unlimited screens, one price</b>
+          <p>Competitors charge per screen. ParkCast charges per venue — add the
+          café TV, the lobby TV, every party room. Your price never moves.</p>
+        </div>
+        <div class="val">
+          <div class="ico">🎨</div>
+          <b>Design it in the dashboard</b>
+          <p>Upload videos and photos, import PowerPoint, or compose boards in the
+          built-in designer. Changes reach every screen live.</p>
+        </div>
+        <div class="val">
+          <div class="ico">📶</div>
+          <b>Survives bad Wi-Fi</b>
+          <p>Screens keep their content on-device. If your internet drops — even if a
+          TV reboots while it's down — the loop keeps playing.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap setup">
+      <div>
+        <div class="kicker">Setup</div>
+        <h2>On the TVs you already own — here's exactly what that means</h2>
+        <div class="steps">
+          <div class="srow">
+            <div class="num">1</div>
+            <div><b>Plug a streaming stick into the TV</b>
+            <span>Any Fire TV or Google TV stick works — the ones venues already have behind half their TVs.</span></div>
+          </div>
+          <div class="srow">
+            <div class="num">2</div>
+            <div><b>Open ParkCast Player on it</b>
+            <span>The screen shows a 6-digit code. That's the whole setup on the TV side.</span></div>
+          </div>
+          <div class="srow">
+            <div class="num">3</div>
+            <div><b>Type the code in your dashboard</b>
+            <span>Press “+ Add screen”, name it after its room, choose what plays. About two minutes per TV.</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="hw">
+        <b>Works with</b>
+        <ul>
+          <li>Amazon Fire TV Stick (any recent model)</li>
+          <li>Chromecast / Google TV and Android TV devices</li>
+          <li>Smart TVs with a browser, mini-PCs, and tablets</li>
+          <li>Your own on-premise server, if you prefer LAN-only</li>
+        </ul>
+        <div class="note">No special hardware to buy from us — a ~$25 stick turns any
+        TV in the building into a managed screen.</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="pricing">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="kicker">Pricing</div>
+        <h2>One price per venue. That's the whole table.</h2>
+      </div>
+      <div class="price-card">
+        <div class="price-left">
+          <div class="price-big">$99<small>/month</small></div>
+          <div class="per">per venue — not per screen</div>
+        </div>
+        <div class="price-right">
+          <ul>
+            <li>Unlimited screens</li>
+            <li>Automatic party takeovers</li>
+            <li>Built-in board designer</li>
+            <li>Playlists &amp; scheduling</li>
+            <li>Team accounts with roles</li>
+            <li>Hands-on setup help</li>
+          </ul>
+          <div class="fine">Early-access pricing, billed directly — no card needed to start.
+          Multiple locations? <a href="mailto:srini.vanukuri@gmail.com?subject=ParkCast%20multi-location" style="color:var(--muted)">Email us</a> for a per-location rate.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="kicker">Support</div>
+        <h2>We'll help you get your first screen running</h2>
+        <p class="sub">Start self-serve, and if you'd rather walk through it together —
+        setup, migrating from another system, or connecting your booking platform —
+        email us and a real person helps directly, usually the same day.</p>
+        <div class="cta" style="justify-content:flex-start">
+          <a class="btn primary" href="mailto:srini.vanukuri@gmail.com?subject=ParkCast%20setup%20help">Email support</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="closing wrap">
+    <h2>Run your screens like one system</h2>
+    <div class="cta">
+      <a class="btn primary big" href="/dashboard/#signup">Start your venue</a>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
     <span>ParkCast</span>
+    <span class="spacer"></span>
+    <a href="/dashboard/#signin">Sign in</a>
     <a href="/privacy">Privacy</a>
-    <a href="mailto:srini.vanukuri@gmail.com">Support</a>
-  </footer>
+    <a href="mailto:srini.vanukuri@gmail.com?subject=ParkCast%20support">Support</a>
+  </div>
+</footer>
 </body>
 </html>
