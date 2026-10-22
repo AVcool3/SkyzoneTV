@@ -392,6 +392,10 @@ app.use(express.static(path.join(ROOT, 'public')));
 app.get('/privacy', (req, res) => res.sendFile(path.join(ROOT, 'public', 'privacy.html')));
 // Public data-deletion page (Google Play's App content section links here).
 app.get('/delete-account', (req, res) => res.sendFile(path.join(ROOT, 'public', 'delete-account.html')));
+// Footer pages: clean routes like /privacy.
+for (const page of ['changelog', 'guides', 'terms', 'status']) {
+  app.get('/' + page, (req, res) => res.sendFile(path.join(ROOT, 'public', page + '.html')));
+}
 // The sideload APK moved with the rebrand; old Downloader links keep working.
 app.get('/skyzone-player.apk', (req, res) => res.redirect(301, '/parkcast-player.apk'));
 

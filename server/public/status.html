@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Status — ParkCast</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>
+  body { font-family: 'Segoe UI', Roboto, Arial, sans-serif; max-width: 720px; margin: 0 auto;
+         padding: 40px 20px; color: #18181b; line-height: 1.6; background: #ffffff; }
+  h1 { font-size: 26px; }
+  .muted { color: #71717a; font-size: 14px; }
+  a { color: #c2410c; }
+  .top a { text-decoration: none; font-weight: 700; color: #18181b; }
+  .top span { color: #ea580c; }
+  .card { border: 1px solid #e4e4e7; border-radius: 14px; padding: 26px 28px; margin-top: 24px;
+          display: flex; align-items: center; gap: 16px; }
+  .dot { width: 14px; height: 14px; border-radius: 50%; background: #a1a1aa; flex: none; }
+  .dot.ok { background: #16a34a; }
+  .dot.bad { background: #dc2626; }
+  .card b { font-size: 18px; }
+  .meta { margin-top: 14px; color: #71717a; font-size: 14px; }
+</style>
+</head>
+<body>
+  <p class="top"><a href="/">PARK<span>CAST</span></a></p>
+  <h1>Service status</h1>
+  <p class="muted">Live health of the ParkCast service this page is hosted on. Checked from your browser; refreshes every 30 seconds.</p>
+
+  <div class="card">
+    <span id="dot" class="dot"></span>
+    <div>
+      <b id="state">Checking…</b>
+      <div id="detail" class="meta"></div>
+    </div>
+  </div>
+
+  <p class="meta">Screens are built to ride out server or internet interruptions: each TV
+  keeps its content on-device and continues playing its loop until the connection returns.
+  If something looks wrong with your venue, email
+  <a href="mailto:srini.vanukuri@gmail.com?subject=ParkCast%20status">support</a>.</p>
+
+<script>
+  const fmt = s => {
+    const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+    return (d ? d + 'd ' : '') + (h ? h + 'h ' : '') + m + 'm';
+  };
+  async function checkHealth() {
+    const dot = document.getElementById('dot');
+    try {
+      const r = await fetch('/healthz', { cache: 'no-store' });
+      const j = await r.json();
+      if (!r.ok || !j.ok) throw 0;
+      dot.className = 'dot ok';
+      document.getElementById('state').textContent = 'All systems operational';
+      document.getElementById('detail').textContent =
+        'Up for ' + fmt(j.uptimeSec) + ' · checked ' + new Date().toLocaleTimeString();
+    } catch {
+      dot.className = 'dot bad';
+      document.getElementById('state').textContent = 'Service unreachable';
+      document.getElementById('detail').textContent =
+        'Your screens keep playing from their on-device cache. Checked ' + new Date().toLocaleTimeString();
+    }
+  }
+  checkHealth();
+  setInterval(checkHealth, 30000);
+</script>
+</body>
+</html>
