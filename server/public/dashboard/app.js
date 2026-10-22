@@ -149,6 +149,7 @@
     $('toast').classList.add('hidden');
     $('signinForm').reset();
     $('signupForm').reset();
+    $('adminForm').reset();
     $('memberForm').reset();
     $('memberForm').classList.add('hidden');
     $('teamList').innerHTML = '';
@@ -163,19 +164,24 @@
   // Sign in / Sign up views; /dashboard/#signup preselects the signup form.
   // Returning users get the primary card, signup lives behind one link.
   function showAuthTab(which) {
-    const signup = which === 'signup';
-    $('signinForm').classList.toggle('hidden', signup);
-    $('signupForm').classList.toggle('hidden', !signup);
-    $('switchToSignup').classList.toggle('hidden', signup);
-    $('switchToSignin').classList.toggle('hidden', !signup);
-    $('authTitle').textContent = signup ? 'Create your venue' : 'Sign in to ParkCast';
-    $('authSub').textContent = signup
-      ? 'A free workspace for your venue — your first screen can be live in minutes.'
+    $('signinForm').classList.toggle('hidden', which !== 'signin');
+    $('signupForm').classList.toggle('hidden', which !== 'signup');
+    $('adminForm').classList.toggle('hidden', which !== 'admin');
+    $('switchToSignup').classList.toggle('hidden', which !== 'signin');
+    $('switchToSignin').classList.toggle('hidden', which === 'signin');
+    $('authTitle').textContent =
+      which === 'signup' ? 'Create your venue'
+      : which === 'admin' ? 'Server admin sign-in'
+      : 'Sign in to ParkCast';
+    $('authSub').textContent =
+      which === 'signup' ? 'A free workspace for your venue — your first screen can be live in minutes.'
+      : which === 'admin' ? 'The ADMIN_PASSWORD from the server environment — owner of the original venue, with platform access.'
       : "Manage your venue's screens, playlists, and parties.";
     $('loginError').textContent = '';
   }
   $('tabSignin').addEventListener('click', () => showAuthTab('signin'));
   $('tabSignup').addEventListener('click', () => showAuthTab('signup'));
+  $('tabAdmin').addEventListener('click', () => showAuthTab('admin'));
   if (location.hash === '#signup') showAuthTab('signup');
   // Landing-page links can land on an ALREADY-OPEN dashboard tab, where only
   // the hash changes and no reload happens — switch the form then too.
@@ -232,6 +238,10 @@
       venue: $('suVenue').value, name: $('suName').value,
       email: $('suEmail').value, password: $('suPassword').value
     });
+  });
+  $('adminForm').addEventListener('submit', e => {
+    e.preventDefault();
+    authenticate('/api/login', { password: $('adPassword').value });
   });
 
   let bootRetry = null;

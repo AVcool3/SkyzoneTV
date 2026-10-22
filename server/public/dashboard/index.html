@@ -29,6 +29,15 @@
       </label>
       <button type="submit" class="btn primary wide">Sign in</button>
     </form>
+    <form id="adminForm" class="auth-form hidden">
+      <label class="field" for="adPassword">Server admin password
+        <span class="pw-wrap">
+          <input id="adPassword" type="password" autocomplete="current-password" required>
+          <button type="button" class="pw-toggle" aria-label="Show password">Show</button>
+        </span>
+      </label>
+      <button type="submit" class="btn primary wide">Sign in as admin</button>
+    </form>
     <form id="signupForm" class="auth-form hidden">
       <label class="field" for="suVenue">Venue name
         <input id="suVenue" placeholder="e.g. Skyline Trampoline Park" required maxlength="60">
@@ -56,6 +65,7 @@
       <p><b>Joining an existing venue?</b> A venue owner adds you from their Team page — ask them for an invite.</p>
       <p><b>Forgot your password?</b> Any owner at your venue can reset it from Team.
       Owners: <a href="mailto:srini.vanukuri@gmail.com?subject=ParkCast%20password%20reset">email support</a>.</p>
+      <p><b>Running this server?</b> <button id="tabAdmin" class="linklike" type="button">Sign in with the admin password</button>.</p>
     </div>
     <a class="hint back-home" href="/">← Back to ParkCast home</a>
   </div>
