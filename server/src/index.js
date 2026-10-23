@@ -883,6 +883,10 @@ function freshPairCode() {
 
 // Registration is necessarily unauthenticated (it IS the pairing step), so
 // new-screen creation is rate limited per IP to keep junk rows bounded.
+// Every TV in a venue shares the venue's one public IP, so the cap must
+// clear re-pairing a whole park in one sitting (unclaimed rows are reaped
+// after 24h either way).
+const REGISTER_PER_IP_PER_HOUR = 50;
 const registerAttempts = new Map(); // ip -> { count, resetAt }
 function registerLimited(ip) {
   const now = Date.now();
@@ -895,7 +899,7 @@ function registerLimited(ip) {
     return false;
   }
   entry.count++;
-  return entry.count > 10;
+  return entry.count > REGISTER_PER_IP_PER_HOUR;
 }
 
 app.post('/api/player/register', (req, res) => {

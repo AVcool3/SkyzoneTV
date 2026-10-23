@@ -68,8 +68,15 @@ const run = async () => {
   // marketing landing page at the root, with signup/signin entry points
   const landing = await fetch(BASE + '/');
   const landingHtml = await landing.text();
-  check('landing page served at root', landing.status === 200 && /Sign up/.test(landingHtml));
-  check('landing page has contact section', /Deployment support/.test(landingHtml));
+  check('landing page served at root', landing.status === 200 &&
+    landingHtml.includes('/dashboard/#signup') && landingHtml.includes('/dashboard/#signin'));
+  check('landing page has a support route', /mailto:[^"]+subject=ParkCast/.test(landingHtml));
+  let footerOk = true;
+  for (const p of ['/changelog', '/guides', '/privacy', '/status', '/terms', '/delete-account']) {
+    if (!landingHtml.includes(`href="${p}"`) && p !== '/delete-account') footerOk = false;
+    if ((await fetch(BASE + p)).status !== 200) footerOk = false;
+  }
+  check('footer pages are linked and served', footerOk);
 
   // player registration
   const reg = await api(null, 'POST', '/api/player/register', {});

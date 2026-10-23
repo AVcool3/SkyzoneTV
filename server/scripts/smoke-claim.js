@@ -73,6 +73,14 @@ const run = async () => {
   const reclaim = await api(tokenA, 'POST', '/api/tvs/claim', { code });
   check('code cannot be reused', reclaim.status === 404);
 
+  // a whole park re-pairs at once from ONE public IP (12 TVs at the pilot)
+  let parkOk = true;
+  for (let i = 0; i < 14; i++) {
+    const r = await api(null, 'POST', '/api/player/register', {});
+    if (r.status !== 200) { parkOk = false; break; }
+  }
+  check('a full park of new screens can register from one IP', parkOk);
+
   console.log(failures === 0 ? '\nAll claim tests passed.' : `\n${failures} FAILURES`);
   process.exit(failures === 0 ? 0 : 1);
 };
