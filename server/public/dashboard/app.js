@@ -181,14 +181,17 @@
   }
   $('tabSignin').addEventListener('click', () => showAuthTab('signin'));
   $('tabSignup').addEventListener('click', () => showAuthTab('signup'));
-  $('tabAdmin').addEventListener('click', () => showAuthTab('admin'));
-  if (location.hash === '#signup') showAuthTab('signup');
+  // The server-admin form has no visible link; the operator opens
+  // /dashboard/#admin directly.
+  const authFromHash = () => {
+    if (location.hash === '#signup') showAuthTab('signup');
+    else if (location.hash === '#admin') showAuthTab('admin');
+    else if (location.hash === '#signin') showAuthTab('signin');
+  };
+  authFromHash();
   // Landing-page links can land on an ALREADY-OPEN dashboard tab, where only
   // the hash changes and no reload happens — switch the form then too.
-  window.addEventListener('hashchange', () => {
-    if (location.hash === '#signup') showAuthTab('signup');
-    else if (location.hash === '#signin') showAuthTab('signin');
-  });
+  window.addEventListener('hashchange', authFromHash);
 
   // Show/hide password — the browser's a11y tree gets a proper state too.
   document.querySelectorAll('.pw-toggle').forEach(btn => {
