@@ -47,4 +47,13 @@ jobs:
           done
           curl -fs http://localhost:8081/healthz
           BASE_URL=http://localhost:8081 node scripts/smoke-claim.js
+          # a not-yet-live server forwarding its screens to this one
+          ADMIN_PASSWORD=ci-bridge DATA_DIR=/tmp/ci-bridge REQUIRE_TV_APPROVAL=1 PORT=8082 PLAYER_HOME=http://localhost:8081 node src/index.js &
+          BRIDGE_PID=$!
+          for i in $(seq 1 30); do
+            curl -fs http://localhost:8082/healthz > /dev/null && break
+            sleep 1
+          done
+          BASE_URL=http://localhost:8082 HOME_URL=http://localhost:8081 node scripts/smoke-bridge.js
+          kill $BRIDGE_PID
           kill $SERVER_PID

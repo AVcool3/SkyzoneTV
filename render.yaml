@@ -8,6 +8,9 @@
 #                     default venue (all existing screens/media). Set it
 #                     BEFORE sharing the URL with anyone.
 #   ROLLER_CLIENT_ID / ROLLER_CLIENT_SECRET — optional, for booking sync
+#   PLAYER_HOME     — optional, only on a server that isn't live yet: forward
+#                     every TV that opens it to the live server, e.g.
+#                     https://skyzone-tv.onrender.com. Remove at cutover.
 # Also enable "Wait for CI to pass before deploying" so red tests block deploys.
 services:
   - type: web
@@ -42,4 +45,6 @@ services:
       - key: ROLLER_CLIENT_ID
         sync: false
       - key: ROLLER_CLIENT_SECRET
+        sync: false
+      - key: PLAYER_HOME
         sync: false

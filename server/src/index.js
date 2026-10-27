@@ -24,6 +24,18 @@ const PORT = parseInt(process.env.PORT || '8080', 10);
 // content (anyone on the internet can open the player URL; approval is what
 // makes that safe). Leave unset on a LAN for instant pairing.
 const REQUIRE_TV_APPROVAL = process.env.REQUIRE_TV_APPROVAL === '1' || process.env.REQUIRE_TV_APPROVAL === 'true';
+// A server that isn't in service yet can forward its screens to the one that
+// is: set PLAYER_HOME (e.g. https://skyzone-tv.onrender.com) on it, and every
+// TV that opens this server's player is handed to PLAYER_HOME instead of
+// waiting here on a code nobody can claim. Unset it once this server takes over.
+const PLAYER_HOME = (() => {
+  try {
+    const u = new URL(process.env.PLAYER_HOME || '');
+    return /^https?:$/.test(u.protocol) ? u.origin : null;
+  } catch { return null; }
+})();
+// Never forward a server to itself (a copy-pasted value would loop the TVs).
+const playerHomeFor = host => (PLAYER_HOME && new URL(PLAYER_HOME).host !== host ? PLAYER_HOME : null);
 
 fs.mkdirSync(MEDIA_DIR, { recursive: true });
 const store = new Store(path.join(DATA_DIR, 'db.json'));
@@ -903,6 +915,8 @@ function registerLimited(ip) {
 }
 
 app.post('/api/player/register', (req, res) => {
+  const home = playerHomeFor(req.get('host'));
+  if (home) return res.json({ moved: home });
   const { existingId } = req.body || {};
   let tv = existingId ? store.tv(existingId) : null;
   if (!tv) {
@@ -1976,8 +1990,9 @@ server.requestTimeout = 60 * 60_000;
 // (100MB) would let any LAN device force huge disk writes and broadcasts.
 const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 64 * 1024 });
 
-wss.on('connection', ws => {
+wss.on('connection', (ws, req) => {
   ws.isAlive = true;
+  const home = playerHomeFor(req.headers.host);
   ws.on('pong', () => { ws.isAlive = true; });
 
   ws.on('message', raw => {
@@ -1985,6 +2000,14 @@ wss.on('connection', ws => {
     try { msg = JSON.parse(raw); } catch { return; }
 
     if (msg.type === 'hello' && msg.role === 'player') {
+      if (home) {
+        // Shaped as a state push so an older player still sees the new build
+        // fingerprint, reloads, and picks up the code that follows 'moved'.
+        ws.send(JSON.stringify({ type: 'state', assetVersion: ASSET_VERSION, moved: home,
+          tv: { id: '', name: '' }, power: 'on', approved: false, pairCode: '', fit: 'contain',
+          playlist: [], transition: 'none', override: null }));
+        return;
+      }
       const tv = store.tv(msg.tvId);
       if (!tv) { ws.send(JSON.stringify({ type: 'reregister' })); return; }
       ws.role = 'player';
@@ -2074,6 +2097,7 @@ server.listen(PORT, () => {
   } else {
     console.log(`  Dashboard password: ${ADMIN_PASSWORD}  (auto-generated; set the ADMIN_PASSWORD environment variable to choose your own)`);
   }
+  if (PLAYER_HOME) console.log(`  Screens forwarded to ${PLAYER_HOME} (PLAYER_HOME is set)`);
 });
 
 process.on('SIGINT', () => { try { store.saveNow(); } catch {} process.exit(0); });

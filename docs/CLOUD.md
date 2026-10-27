@@ -91,6 +91,15 @@ real venue URL there after deploying.
 
 ## Moving a venue to a new server
 
+**Until cutover, forward the new server's TVs to the live one.** The TV app
+connects to `parkcast.onrender.com` by default, so a screen installed now
+lands on the new, empty server and waits on a code nobody can claim. Set
+`PLAYER_HOME=https://skyzone-tv.onrender.com` on the **new** service
+(Environment tab). Every TV that opens it — new installs and screens already
+waiting there — moves itself to the live server and shows a code you can add
+from your dashboard. On migration night, delete `PLAYER_HOME` from the new
+service *before* re-pairing the TVs there; otherwise they keep forwarding.
+
 Content moves with one command run from any laptop (Node 20+), using only
 the public APIs — screens then re-pair by code:
 

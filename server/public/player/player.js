@@ -157,6 +157,16 @@
   for (const v of [videoA, videoB, overrideVideo]) v.muted = !AUDIO;
 
   // --- registration ------------------------------------------------------
+  // A server that isn't in service hands its screens to the one that is.
+  function moveTo(origin) {
+    try {
+      const target = new URL(origin);
+      if (target.origin === location.origin) return false;
+      location.replace(`${target.origin}/player/${location.search}`);
+      return true;
+    } catch { return false; }
+  }
+
   async function register() {
     try {
       const res = await fetch('/api/player/register', {
@@ -165,6 +175,7 @@
         body: JSON.stringify({ existingId: tvId })
       });
       const data = await res.json();
+      if (data.moved && moveTo(data.moved)) return 'moved';
       tvId = data.tvId;
       try { localStorage.setItem('parkcast.tvId', tvId); } catch {}
       idleName.textContent = data.name;
@@ -196,6 +207,7 @@
     ws.onmessage = e => {
       let msg;
       try { msg = JSON.parse(e.data); } catch { return; }
+      if (msg.moved && moveTo(msg.moved)) return;
       if (msg.type === 'state') {
         // A deploy changed the player files: reload once so the fix runs
         // here too. The baseline is whatever the first push after page load
@@ -224,6 +236,7 @@
         } catch {}
         tvId = null;
         const attempt = () => register().then(ok => {
+          if (ok === 'moved') return;
           if (!ws || ws.readyState !== WebSocket.OPEN) return; // reconnect will redo the hello
           if (ok) ws.send(JSON.stringify({ type: 'hello', role: 'player', tvId }));
           else setTimeout(attempt, 5000);
@@ -606,6 +619,7 @@
     idleName.textContent = 'Connecting…';
     keepAwake();
     let ok = await register();
+    if (ok === 'moved') return;
     let offlineResumed = false;
     while (!ok) {
       idleConn.textContent = 'Cannot reach server — retrying…';
@@ -624,6 +638,7 @@
       }
       await new Promise(r => setTimeout(r, 3000));
       ok = await register();
+      if (ok === 'moved') return;
     }
     connect();
   })();
