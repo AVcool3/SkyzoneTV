@@ -26,6 +26,8 @@ jobs:
         run: node scripts/test-byline.js
       - name: Store migration unit tests
         run: node scripts/test-migrate.js
+      - name: TV player stays parseable on older TV browsers
+        run: node scripts/test-tv-syntax.js
       - name: Boot server and run smoke suite (LAN mode)
         run: |
           ADMIN_PASSWORD=ci-smoke DATA_DIR=/tmp/ci-data node src/index.js &

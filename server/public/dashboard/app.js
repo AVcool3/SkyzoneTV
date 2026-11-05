@@ -473,7 +473,9 @@
           <span class="badge ${tv.online ? 'online' : 'offline'}">${tv.online ? 'ONLINE' : 'OFFLINE'}</span>
           ${tv.power === 'off' ? '<span class="badge off">SCREEN OFF</span>' : ''}
           ${tv.override ? `<span class="badge bday">PARTY · ${esc(tv.override.name)}</span>` : ''}
+          ${Math.abs(tv.clockSkewMs || 0) >= 5 * 60000 ? '<span class="badge clock">CLOCK WRONG</span>' : ''}
         </div>
+        ${Math.abs(tv.clockSkewMs || 0) >= 5 * 60000 ? `<div class="tv-warn">This TV thinks it's ${esc(fmtTime(new Date(Date.now() + tv.clockSkewMs).toISOString()))}. Fix its date and time (or let it reach an internet time server) — a wrong clock stops it connecting.</div>` : ''}
         <div class="tv-now">${tv.power === 'off' ? 'Screen off' :
           tv.override ? `Birthday takeover until ${fmtTime(tv.override.endsAt)}` :
           pl ? `Playlist: <span class="playing">${esc(pl.name)}</span>` :

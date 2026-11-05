@@ -26,10 +26,17 @@
   try {
     tvId = localStorage.getItem('parkcast.tvId') || localStorage.getItem('skyzone.tvId') || null;
     if (tvId) localStorage.setItem('parkcast.tvId', tvId);
-  } catch {} // blocked storage: the TV still boots, it just re-pairs each launch
+  } catch (_err) {} // blocked storage: the TV still boots, it just re-pairs each launch
   let ws = null;
   let reconnectDelay = 1000;
   let assetVersion = null;   // player build fingerprint from the server
+  let clockSkewMs = 0;        // this TV's clock minus the server's
+  const CLOCK_WARN_MS = 5 * 60000;
+  function clockWarning() {
+    if (Math.abs(clockSkewMs) < CLOCK_WARN_MS) return '';
+    const says = new Date().toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    return `This TV's clock says ${says} — set the correct date and time, or it can stop connecting.`;
+  }
   let state = null;           // last state from server
   let playlist = [];          // [{id,label,url}]
   let playlistKey = '';
@@ -164,7 +171,7 @@
       if (target.origin === location.origin) return false;
       location.replace(`${target.origin}/player/${location.search}`);
       return true;
-    } catch { return false; }
+    } catch (_err) { return false; }
   }
 
   async function register() {
@@ -177,10 +184,10 @@
       const data = await res.json();
       if (data.moved && moveTo(data.moved)) return 'moved';
       tvId = data.tvId;
-      try { localStorage.setItem('parkcast.tvId', tvId); } catch {}
+      try { localStorage.setItem('parkcast.tvId', tvId); } catch (_err) {}
       idleName.textContent = data.name;
       return true;
-    } catch {
+    } catch (_err) {
       return false;
     }
   }
@@ -191,7 +198,7 @@
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     try {
       ws = new WebSocket(`${proto}://${location.host}/ws`);
-    } catch {
+    } catch (_err) {
       setTimeout(connect, reconnectDelay);
       reconnectDelay = Math.min(reconnectDelay * 1.7, 15000);
       return;
@@ -206,9 +213,10 @@
     };
     ws.onmessage = e => {
       let msg;
-      try { msg = JSON.parse(e.data); } catch { return; }
+      try { msg = JSON.parse(e.data); } catch (_err) { return; }
       if (msg.moved && moveTo(msg.moved)) return;
       if (msg.type === 'state') {
+        if (Number.isFinite(msg.serverTime)) clockSkewMs = Date.now() - msg.serverTime;
         // A deploy changed the player files: reload once so the fix runs
         // here too. The baseline is whatever the first push after page load
         // reports; only a CHANGE afterwards triggers the reload.
@@ -227,13 +235,13 @@
             navigator.serviceWorker.controller.postMessage({ type: 'retain', urls });
           }
           if (msg.approved !== false) localStorage.setItem('parkcast.lastState', e.data);
-        } catch {}
+        } catch (_err) {}
       }
       else if (msg.type === 'reregister') {
         try {
           localStorage.removeItem('parkcast.tvId');
           localStorage.removeItem('skyzone.tvId');
-        } catch {}
+        } catch (_err) {}
         tvId = null;
         const attempt = () => register().then(ok => {
           if (ok === 'moved') return;
@@ -265,7 +273,7 @@
     else if (state && state.override) nowPlaying = 'Party takeover';
     else if (playlist[current]) nowPlaying = playlist[current].label;
     else nowPlaying = 'Idle';
-    ws.send(JSON.stringify({ type: 'status', nowPlaying }));
+    ws.send(JSON.stringify({ type: 'status', nowPlaying, clockSkewMs }));
   }
   setInterval(reportStatus, 10000);
 
@@ -314,7 +322,8 @@
       idleName.textContent = msg.pairCode ? `Code ${msg.pairCode}` : (msg.tv && msg.tv.name) || '';
       // The pairing screen is the app's only lasting UI, so the privacy
       // policy link lives here (Play policy: reachable from within the app).
-      idleConn.textContent = `Privacy policy: ${location.origin}/privacy`;
+      idleConn.textContent = clockWarning() || `Privacy policy: ${location.origin}/privacy`;
+      idleConn.classList.toggle('bad', !!clockWarning());
       document.getElementById('idleHint').textContent =
         'Open your ParkCast dashboard, press "+ Add screen", and type in this code.';
       reportStatus();
@@ -596,7 +605,7 @@
   // Keep the screen awake where the platform allows it (Fully Kiosk / native
   // wrapper also enforce this on their side).
   async function keepAwake() {
-    try { await navigator.wakeLock.request('screen'); } catch {}
+    try { await navigator.wakeLock.request('screen'); } catch (_err) {}
   }
   document.addEventListener('visibilitychange', () => { if (!document.hidden) keepAwake(); });
 
@@ -611,7 +620,7 @@
       if (navigator.storage && navigator.storage.persist) {
         navigator.storage.persist().catch(() => {});
       }
-    } catch {}
+    } catch (_err) {}
   }
 
   (async function boot() {
@@ -634,7 +643,7 @@
             applyState(saved);
             offlineResumed = true;
           }
-        } catch {}
+        } catch (_err) {}
       }
       await new Promise(r => setTimeout(r, 3000));
       ok = await register();

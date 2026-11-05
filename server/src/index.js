@@ -24,18 +24,28 @@ const PORT = parseInt(process.env.PORT || '8080', 10);
 // content (anyone on the internet can open the player URL; approval is what
 // makes that safe). Leave unset on a LAN for instant pairing.
 const REQUIRE_TV_APPROVAL = process.env.REQUIRE_TV_APPROVAL === '1' || process.env.REQUIRE_TV_APPROVAL === 'true';
-// A server that isn't in service yet can forward its screens to the one that
-// is: set PLAYER_HOME (e.g. https://skyzone-tv.onrender.com) on it, and every
-// TV that opens this server's player is handed to PLAYER_HOME instead of
-// waiting here on a code nobody can claim. Unset it once this server takes over.
+// A server that isn't in service yet forwards everything to the one that is:
+// TVs that open its player are handed over, and its website and dashboard
+// redirect, so nobody pairs a screen or signs up on the wrong server.
+// PLAYER_HOME (e.g. https://skyzone-tv.onrender.com) sets the target;
+// PLAYER_HOME=off disables forwarding, including the alias below.
+const PLAYER_HOME_SETTING = (process.env.PLAYER_HOME || '').trim();
 const PLAYER_HOME = (() => {
   try {
-    const u = new URL(process.env.PLAYER_HOME || '');
+    const u = new URL(PLAYER_HOME_SETTING);
     return /^https?:$/.test(u.protocol) ? u.origin : null;
   } catch { return null; }
 })();
+// Until migration night the brand URL is an alias of the live server: the TV
+// app and the Play listing point at parkcast, the venue still lives on
+// skyzone-tv. Delete this entry (or set PLAYER_HOME=off) at cutover.
+const SERVER_ALIASES = { 'parkcast.onrender.com': 'https://skyzone-tv.onrender.com' };
 // Never forward a server to itself (a copy-pasted value would loop the TVs).
-const playerHomeFor = host => (PLAYER_HOME && new URL(PLAYER_HOME).host !== host ? PLAYER_HOME : null);
+function playerHomeFor(host) {
+  if (PLAYER_HOME_SETTING.toLowerCase() === 'off') return null;
+  const target = PLAYER_HOME || SERVER_ALIASES[String(host || '').toLowerCase()];
+  return target && new URL(target).host !== host ? target : null;
+}
 
 fs.mkdirSync(MEDIA_DIR, { recursive: true });
 const store = new Store(path.join(DATA_DIR, 'db.json'));
@@ -218,6 +228,7 @@ function dashboardSnapshot(venueId) {
       approved: t.approved !== false,
       pairCode: t.approved === false ? t.pairCode : undefined,
       nowPlaying: t.nowPlaying || null,
+      clockSkewMs: t.clockSkewMs || 0,
       override: t.override ? { name: t.override.name, endsAt: t.override.endsAt } : null
     })),
     media: store.mediaOf(venue.id).map(mediaPublic),
@@ -267,7 +278,7 @@ function playerItem(m, durationSec) {
 function playerState(tv) {
   // Unclaimed/unapproved screens get no content — just their pairing code.
   if (tv.approved === false || !tv.venueId) {
-    return { type: 'state', assetVersion: ASSET_VERSION, tv: { id: tv.id, name: tv.name }, power: 'on',
+    return { type: 'state', assetVersion: ASSET_VERSION, serverTime: Date.now(), tv: { id: tv.id, name: tv.name }, power: 'on',
       approved: false, pairCode: tv.pairCode || '', fit: 'contain',
       playlist: [], transition: 'none', override: null };
   }
@@ -317,7 +328,7 @@ function playerState(tv) {
       themeSpec
     };
   }
-  return { type: 'state', assetVersion: ASSET_VERSION, tv: { id: tv.id, name: tv.name }, power: tv.power,
+  return { type: 'state', assetVersion: ASSET_VERSION, serverTime: Date.now(), tv: { id: tv.id, name: tv.name }, power: tv.power,
     approved: true, fit: tv.fit || 'contain', playlist, transition, override,
     venueName: store.venue(tv.venueId)?.name || '' };
 }
@@ -395,6 +406,15 @@ app.get('/healthz', (req, res) => {
     uptimeSec: Math.round((Date.now() - bootedAt) / 1000),
     time: new Date().toISOString()
   });
+});
+
+// A forwarding server sends people to the live one too — /player, the
+// player API and the WebSocket hand off TVs themselves (see playerHomeFor).
+app.use((req, res, next) => {
+  const home = req.method === 'GET' && playerHomeFor(req.get('host'));
+  if (!home || req.path === '/healthz' || req.path === '/ws' ||
+      req.path.startsWith('/api/') || req.path.startsWith('/player')) return next();
+  res.redirect(302, home + req.originalUrl);
 });
 
 // Static: dashboard, player, media files (range requests supported by express.static)
@@ -2032,8 +2052,14 @@ wss.on('connection', (ws, req) => {
       if (!tv) return;
       tv.lastSeen = new Date().toISOString();
       const nowPlaying = typeof msg.nowPlaying === 'string' ? msg.nowPlaying.slice(0, 120) : null;
-      const changed = tv.nowPlaying !== nowPlaying;
+      // How far the TV's own clock is off, to the minute. A clock that has
+      // fallen back to an old date (power loss, no time sync) breaks secure
+      // connections once the server's certificate is newer than that date.
+      const skew = Number.isFinite(msg.clockSkewMs)
+        ? Math.round(Math.max(-1e12, Math.min(1e12, msg.clockSkewMs)) / 60_000) * 60_000 : 0;
+      const changed = tv.nowPlaying !== nowPlaying || (tv.clockSkewMs || 0) !== skew;
       tv.nowPlaying = nowPlaying;
+      tv.clockSkewMs = skew;
       // Persist heartbeats at most once a minute per TV — every 10s status
       // from every screen was rewriting the whole db.json continuously.
       if (changed || !tv._seenSavedAt || Date.now() - tv._seenSavedAt > 60_000) {
@@ -2098,6 +2124,9 @@ server.listen(PORT, () => {
     console.log(`  Dashboard password: ${ADMIN_PASSWORD}  (auto-generated; set the ADMIN_PASSWORD environment variable to choose your own)`);
   }
   if (PLAYER_HOME) console.log(`  Screens forwarded to ${PLAYER_HOME} (PLAYER_HOME is set)`);
+  else if (PLAYER_HOME_SETTING.toLowerCase() !== 'off') {
+    for (const [alias, home] of Object.entries(SERVER_ALIASES)) console.log(`  ${alias} forwards to ${home} until cutover`);
+  }
 });
 
 process.on('SIGINT', () => { try { store.saveNow(); } catch {} process.exit(0); });

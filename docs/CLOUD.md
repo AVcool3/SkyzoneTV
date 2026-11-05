@@ -91,14 +91,26 @@ real venue URL there after deploying.
 
 ## Moving a venue to a new server
 
-**Until cutover, forward the new server's TVs to the live one.** The TV app
-connects to `parkcast.onrender.com` by default, so a screen installed now
-lands on the new, empty server and waits on a code nobody can claim. Set
-`PLAYER_HOME=https://skyzone-tv.onrender.com` on the **new** service
-(Environment tab). Every TV that opens it — new installs and screens already
-waiting there — moves itself to the live server and shows a code you can add
-from your dashboard. On migration night, delete `PLAYER_HOME` from the new
-service *before* re-pairing the TVs there; otherwise they keep forwarding.
+**Until cutover, parkcast.onrender.com forwards to skyzone-tv automatically.**
+The TV app connects to `parkcast.onrender.com` by default, but the venue
+lives on `skyzone-tv`. The server treats parkcast as an alias of the live
+server (`SERVER_ALIASES` in `server/src/index.js`): TVs that open it move
+themselves to skyzone-tv and show a code you can add there, and its website
+and dashboard redirect, so nobody pairs a screen or signs up on the wrong
+server. Its `/healthz` stays local. `PLAYER_HOME=<url>` on a service
+overrides the target; `PLAYER_HOME=off` disables forwarding. **On migration
+night, set `PLAYER_HOME=off` on parkcast (or delete the alias) before
+re-pairing the TVs there**, or they will keep forwarding.
+
+**A TV stuck on a black "Connecting…" screen with a wrong date** can't verify
+the server's certificate: Render's `*.onrender.com` certificates are renewed
+continuously, and a TV whose clock has fallen back to an older date (after a
+power loss, on a network that blocks internet time) rejects certificates
+issued after that date. Fix the TV's time: Fire TV sets it automatically
+when it can reach a time server, so let the stick sync once (a phone hotspot
+works), keep it powered, and make sure the network allows NTP (UDP 123)
+outbound. The dashboard flags connected screens whose clock is more than
+five minutes off ("CLOCK WRONG"), before they lose the connection.
 
 Content moves with one command run from any laptop (Node 20+), using only
 the public APIs — screens then re-pair by code:

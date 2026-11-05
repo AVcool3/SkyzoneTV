@@ -3,6 +3,7 @@
  * A server forwarding its screens must answer every player — at registration
  * and on reconnect — with where to go instead, and create nothing itself.
  */
+import http from 'node:http';
 import WebSocket from 'ws';
 
 const BASE = process.env.BASE_URL || 'http://localhost:8082';
@@ -35,6 +36,30 @@ const run = async () => {
   });
   check('connected screen is told to move', msg.moved === HOME);
   check('and gets the build fingerprint so older players reload', msg.type === 'state' && !!msg.assetVersion);
+
+  // Built-in alias: with no PLAYER_HOME at all, a request addressed to
+  // parkcast.onrender.com forwards to the live server; any other host doesn't.
+  const LIVE = 'https://skyzone-tv.onrender.com';
+  const asHost = (host, method, p, body) => new Promise((resolve, reject) => {
+    const u = new URL(HOME + p);
+    const req = http.request({ hostname: u.hostname, port: u.port, path: u.pathname, method,
+      headers: { Host: host, ...(body ? { 'Content-Type': 'application/json' } : {}) } }, res => {
+      let data = '';
+      res.on('data', c => { data += c; });
+      res.on('end', () => resolve({ status: res.statusCode, location: res.headers.location, data }));
+    });
+    req.on('error', reject);
+    if (body) req.write(body);
+    req.end();
+  });
+  const site = await asHost('parkcast.onrender.com', 'GET', '/dashboard/');
+  check('parkcast website redirects to the live server', site.status === 302 && site.location === LIVE + '/dashboard/');
+  const health = await asHost('parkcast.onrender.com', 'GET', '/healthz');
+  check('parkcast health check stays local', health.status === 200);
+  const aliasReg = await asHost('parkcast.onrender.com', 'POST', '/api/player/register', '{}');
+  check('parkcast screens are handed to the live server', JSON.parse(aliasReg.data).moved === LIVE);
+  const own = await asHost('skyzone-tv.onrender.com', 'GET', '/dashboard/');
+  check('the live server never forwards itself', own.status === 200);
 
   console.log(failures === 0 ? '\nAll hand-off tests passed.' : `\n${failures} FAILURES`);
   process.exit(failures === 0 ? 0 : 1);

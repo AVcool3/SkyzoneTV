@@ -174,6 +174,8 @@ input:focus, select:focus { outline: 2px solid var(--blue); outline-offset: -1px
 .badge.offline { background: var(--panel2); color: var(--muted); }
 .badge.off { background: var(--panel2); color: var(--muted); }
 .badge.bday { background: var(--accent-soft); color: var(--accent-strong); }
+.badge.clock { background: #fde8e8; color: #b42318; }
+.tv-warn { font-size: 13px; line-height: 1.45; color: #b42318; background: #fff5f5; border-radius: 8px; padding: 8px 10px; }
 .tv-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 
 /* ---- Media list ---- */

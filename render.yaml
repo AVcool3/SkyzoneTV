@@ -8,9 +8,9 @@
 #                     default venue (all existing screens/media). Set it
 #                     BEFORE sharing the URL with anyone.
 #   ROLLER_CLIENT_ID / ROLLER_CLIENT_SECRET — optional, for booking sync
-#   PLAYER_HOME     — optional, only on a server that isn't live yet: forward
-#                     every TV that opens it to the live server, e.g.
-#                     https://skyzone-tv.onrender.com. Remove at cutover.
+#   PLAYER_HOME     — optional: forward this server's TVs + website to another
+#                     server (parkcast already forwards to skyzone-tv by
+#                     default); PLAYER_HOME=off at cutover.
 # Also enable "Wait for CI to pass before deploying" so red tests block deploys.
 services:
   - type: web

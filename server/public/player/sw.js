@@ -42,7 +42,7 @@ self.addEventListener('fetch', event => {
   const req = event.request;
   if (req.method !== 'GET') return;
   let url;
-  try { url = new URL(req.url); } catch { return; }
+  try { url = new URL(req.url); } catch (_err) { return; }
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith('/media/')) {
     event.respondWith(media(event, req, url.pathname));
@@ -69,7 +69,7 @@ async function media(event, req, pathname) {
       event.waitUntil(dl); // keep the worker alive until the copy lands
     }
     return await fetch(req);
-  } catch {
+  } catch (_err) {
     return fetch(req);
   }
 }
@@ -80,7 +80,7 @@ async function fullDownload(cache, pathname) {
     // Only a complete, healthy body is worth keeping; put() may also throw
     // on storage quota, which simply leaves this file streaming as before.
     if (res.status === 200) await cache.put(pathname, res);
-  } catch {}
+  } catch (_err) {}
   downloading.delete(pathname);
 }
 
@@ -134,11 +134,11 @@ async function shell(req, key) {
         });
         const cache = await caches.open(SHELL_CACHE);
         await cache.put(key, clean);
-      } catch {}
+      } catch (_err) {}
       return res;
     }
     throw new Error('bad status');
-  } catch {
+  } catch (_err) {
     const hit = await caches.match(key, { cacheName: SHELL_CACHE });
     return hit || fetch(req);
   }
@@ -154,13 +154,13 @@ self.addEventListener('message', event => {
     event.waitUntil((async () => {
       try {
         const keep = new Set(msg.urls.map(u => {
-          try { return new URL(u, self.location.origin).pathname; } catch { return u; }
+          try { return new URL(u, self.location.origin).pathname; } catch (_err) { return u; }
         }));
         const cache = await caches.open(MEDIA_CACHE);
         for (const req of await cache.keys()) {
           if (!keep.has(new URL(req.url).pathname)) await cache.delete(req);
         }
-      } catch {}
+      } catch (_err) {}
     })());
   }
   if (msg.type === 'stats' && event.source) {
@@ -172,7 +172,7 @@ self.addEventListener('message', event => {
           type: 'stats',
           cachedMedia: keys.map(k => new URL(k.url).pathname)
         });
-      } catch {}
+      } catch (_err) {}
     })());
   }
 });
