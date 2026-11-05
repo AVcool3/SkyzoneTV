@@ -71,6 +71,12 @@ if (!ADMIN_PASSWORD) {
 const OWNER_EMAIL = (process.env.OWNER_EMAIL || '').trim().toLowerCase();
 // The OWNER_EMAIL account runs the platform, even if it signed up before
 // the platform-admin flag existed.
+// One kind of account: everyone signed in to a venue can do everything.
+// Older data carried owner/staff roles; flatten them once at startup.
+if (store.data.users.some(u => u.role !== 'owner')) {
+  for (const u of store.data.users) u.role = 'owner';
+  store.saveNow();
+}
 if (OWNER_EMAIL) {
   const ownerUser = store.userByEmail(OWNER_EMAIL);
   if (ownerUser && ownerUser.platformAdmin !== true) {
@@ -92,8 +98,8 @@ function verifyPassword(password, stored) {
   return probe.length === known.length && crypto.timingSafeEqual(probe, known);
 }
 
-const SESSION_TTL_MS = 30 * 86_400_000; // sessions expire after 30 days
-const TOKENS_PER_USER = 10;             // signing in on an 11th device evicts the oldest
+const SESSION_TTL_MS = 365 * 86_400_000; // stay signed in for a year
+const TOKENS_PER_USER = 100;             // one account can be open on 100 devices at once
 
 // `supportVenueId` marks a support session: an admin working inside a venue
 // whose owner granted time-boxed access. The token only works while that
@@ -109,7 +115,7 @@ function issueToken(userId, supportVenueId = null) {
     tokens = tokens.filter(t => !drop.has(t.token));
   }
   tokens.push({ token, userId, ...(supportVenueId ? { venueId: supportVenueId, support: true } : {}), createdAt: Date.now() });
-  while (tokens.length > 2000) tokens.shift();
+  while (tokens.length > 20000) tokens.shift();
   store.data.settings.tokens = tokens;
   store.save();
   return token;
@@ -174,13 +180,6 @@ function requireAuth(req, res, next) {
 }
 // True when an item exists AND belongs to the caller's venue.
 const owned = (req, item) => !!item && item.venueId === req.venueId;
-// Owner-only actions (team management, venue settings). The legacy admin
-// password acts as the default venue's owner.
-function requireOwner(req, res, next) {
-  const role = req.userId === 'legacy-admin' ? 'owner' : store.user(req.userId)?.role;
-  if (role !== 'owner') return res.status(403).json({ error: 'Only owners can do this' });
-  next();
-}
 
 // ---------------------------------------------------------------------------
 // State snapshots
@@ -384,7 +383,11 @@ app.set('trust proxy', 1); // correct client IPs behind a cloud HTTPS proxy
 app.use(express.json({ limit: '1mb' }));
 
 // Brute-force protection on the dashboard password.
-const loginAttempts = new Map(); // ip -> { count, resetAt }
+// Keyed per person (IP + email), so one person's typos on a shared park
+// network never lock out everyone else signing in from the same Wi-Fi.
+const loginAttempts = new Map(); // key -> { count, resetAt }
+const loginKey = (req, kind, email) =>
+  `${kind}|${req.ip}|${String(email || '').trim().toLowerCase()}`;
 function loginLimited(ip) {
   const now = Date.now();
   const entry = loginAttempts.get(ip);
@@ -455,7 +458,8 @@ app.get('/skyzone-player.apk', (req, res) => res.redirect(301, '/parkcast-player
 
 // ---- Auth ----
 app.post('/api/login', (req, res) => {
-  if (loginLimited(req.ip)) {
+  const key = loginKey(req, 'admin', '');
+  if (loginLimited(key)) {
     return res.status(429).json({ error: 'Too many attempts — try again in 15 minutes' });
   }
   const { password } = req.body || {};
@@ -466,7 +470,7 @@ app.post('/api/login', (req, res) => {
   if (given.length !== actual.length || !crypto.timingSafeEqual(given, actual)) {
     return res.status(401).json({ error: 'Wrong password' });
   }
-  loginAttempts.delete(req.ip); // successful logins don't count toward the lockout
+  loginAttempts.delete(key); // successful logins don't count toward the lockout
   res.json({ token: issueToken('legacy-admin') });
 });
 
@@ -476,7 +480,8 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // claims the default venue with all its existing screens and media; every
 // later signup gets a fresh, empty workspace.
 app.post('/api/signup', (req, res) => {
-  if (loginLimited(req.ip)) return res.status(429).json({ error: 'Too many attempts — try again in 15 minutes' });
+  const key = loginKey(req, 'signup', '');
+  if (loginLimited(key)) return res.status(429).json({ error: 'Too many attempts — try again in 15 minutes' });
   const { venue, name, email, password } = req.body || {};
   const cleanEmail = String(email || '').trim().toLowerCase();
   if (!EMAIL_RE.test(cleanEmail)) return res.status(400).json({ error: 'Enter a valid email address' });
@@ -484,7 +489,7 @@ app.post('/api/signup', (req, res) => {
     return res.status(400).json({ error: 'Password must be at least 8 characters' });
   }
   if (store.userByEmail(cleanEmail)) return res.status(400).json({ error: 'That email already has an account — sign in instead' });
-  if (store.data.users.length >= 500) return res.status(429).json({ error: 'Signups are temporarily closed' });
+  if (store.data.users.length >= 5000) return res.status(429).json({ error: 'Signups are temporarily closed' });
 
   // The default venue (all pre-multi-tenant screens and media) goes to the
   // first signup that is ALLOWED to claim it: the OWNER_EMAIL when one is
@@ -521,13 +526,14 @@ app.post('/api/signup', (req, res) => {
   };
   store.data.users.push(user);
   store.save();
-  loginAttempts.delete(req.ip);
+  loginAttempts.delete(key);
   res.json({ token: issueToken(user.id), venueName: store.venue(venueId).name });
 });
 
 app.post('/api/signin', (req, res) => {
-  if (loginLimited(req.ip)) return res.status(429).json({ error: 'Too many attempts — try again in 15 minutes' });
   const { email, password } = req.body || {};
+  const key = loginKey(req, 'signin', email);
+  if (loginLimited(key)) return res.status(429).json({ error: 'Too many attempts — try again in 15 minutes' });
   const user = store.userByEmail(email);
   if (!user || typeof password !== 'string' || !verifyPassword(password, user.passHash)) {
     return res.status(401).json({ error: 'Wrong email or password' });
@@ -539,7 +545,7 @@ app.post('/api/signin', (req, res) => {
   if (home?.suspended && user.platformAdmin !== true) {
     return res.status(403).json({ error: 'This venue is suspended — contact ParkCast support' });
   }
-  loginAttempts.delete(req.ip);
+  loginAttempts.delete(key);
   res.json({ token: issueToken(user.id), venueName: home?.name || '' });
 });
 
@@ -548,7 +554,7 @@ app.get('/api/me', requireAuth, (req, res) => {
     ? { email: null, name: 'Admin', role: 'owner' }
     : store.user(req.userId);
   res.json({ email: user?.email || null, name: user?.name || '',
-    role: user?.role || 'staff',
+    role: 'owner', // one kind of account — everyone can do everything
     platformAdmin: isPlatformAdmin(req.userId),
     venueName: store.venue(req.venueId)?.name || '' });
 });
@@ -629,9 +635,6 @@ app.delete('/api/me', requireAuth, (req, res) => {
   }
   const others = store.data.users.filter(u => u.venueId === user.venueId && u.id !== user.id);
   if (others.length > 0) {
-    if (user.role === 'owner' && !others.some(u => u.role === 'owner')) {
-      return res.status(400).json({ error: 'Make another member an owner first — a venue cannot lose its only owner' });
-    }
     store.data.users = store.data.users.filter(u => u.id !== user.id);
     revokeSessions(user.id);
     store.save();
@@ -655,7 +658,7 @@ app.delete('/api/me', requireAuth, (req, res) => {
 
 // The owner erases the whole venue — every screen, file, playlist, party,
 // and account in it. Password plus the typed venue name gate it.
-app.delete('/api/venue', requireAuth, requireOwner, (req, res) => {
+app.delete('/api/venue', requireAuth, (req, res) => {
   if (req.venueId === store.defaultVenueId()) {
     return res.status(400).json({ error: 'The platform home venue cannot be deleted' });
   }
@@ -688,28 +691,28 @@ function revokeSessions(userId) {
   }
 }
 
-app.get('/api/team', requireAuth, requireOwner, (req, res) => {
+app.get('/api/team', requireAuth, (req, res) => {
   res.json({ members: store.data.users
     .filter(u => u.venueId === req.venueId)
     .map(u => teamMember(u, req.userId)) });
 });
 
-app.post('/api/team', requireAuth, requireOwner, (req, res) => {
-  const { email, name, password, role } = req.body || {};
+app.post('/api/team', requireAuth, (req, res) => {
+  const { email, name, password } = req.body || {};
   const cleanEmail = String(email || '').trim().toLowerCase();
   if (!EMAIL_RE.test(cleanEmail)) return res.status(400).json({ error: 'Enter a valid email address' });
   if (typeof password !== 'string' || password.length < 8) {
     return res.status(400).json({ error: 'Password must be at least 8 characters' });
   }
   if (store.userByEmail(cleanEmail)) return res.status(400).json({ error: 'That email already has an account' });
-  if (store.data.users.length >= 500) return res.status(429).json({ error: 'Account limit reached' });
+  if (store.data.users.length >= 5000) return res.status(429).json({ error: 'Account limit reached' });
   const user = {
     id: crypto.randomUUID(),
     email: cleanEmail,
     passHash: hashPassword(password),
     name: String(name || '').trim().slice(0, 60),
     venueId: req.venueId,
-    role: role === 'owner' ? 'owner' : 'staff',
+    role: 'owner',
     createdAt: new Date().toISOString()
   };
   store.data.users.push(user);
@@ -717,21 +720,14 @@ app.post('/api/team', requireAuth, requireOwner, (req, res) => {
   res.json({ ok: true, member: teamMember(user, req.userId) });
 });
 
-app.patch('/api/team/:id', requireAuth, requireOwner, (req, res) => {
+app.patch('/api/team/:id', requireAuth, (req, res) => {
   const user = store.user(req.params.id);
   if (!owned(req, user)) return res.status(404).json({ error: 'No such member' });
-  // Blocking self-edits keeps at least one owner in every venue.
-  if (user.id === req.userId) return res.status(400).json({ error: 'You cannot change your own access — ask another owner' });
-  const { role, password } = req.body || {};
-  // Validate EVERYTHING before touching the user: a request that half-fails
-  // must change nothing, or "error" responses silently apply edits.
-  if (role !== undefined && role !== 'owner' && role !== 'staff') {
-    return res.status(400).json({ error: 'Role must be owner or staff' });
-  }
+  if (user.id === req.userId) return res.status(400).json({ error: 'Use Change password for your own account' });
+  const { password } = req.body || {};
   if (password !== undefined && (typeof password !== 'string' || password.length < 8)) {
     return res.status(400).json({ error: 'Password must be at least 8 characters' });
   }
-  if (role !== undefined) user.role = role; // takes effect on their next request — roles are checked live
   if (password !== undefined) {
     user.passHash = hashPassword(password);
     revokeSessions(user.id); // old sessions die with the old password
@@ -740,7 +736,7 @@ app.patch('/api/team/:id', requireAuth, requireOwner, (req, res) => {
   res.json({ ok: true, member: teamMember(user, req.userId) });
 });
 
-app.delete('/api/team/:id', requireAuth, requireOwner, (req, res) => {
+app.delete('/api/team/:id', requireAuth, (req, res) => {
   const user = store.user(req.params.id);
   if (!owned(req, user)) return res.status(404).json({ error: 'No such member' });
   if (user.id === req.userId) return res.status(400).json({ error: 'You cannot remove yourself' });
@@ -782,7 +778,7 @@ app.post('/api/admin/venues', requireAuth, requireAdmin, (req, res) => {
     return res.status(400).json({ error: 'Owner password must be at least 8 characters' });
   }
   if (store.userByEmail(cleanEmail)) return res.status(400).json({ error: 'That email already has an account' });
-  if (store.data.users.length >= 500) return res.status(429).json({ error: 'Account limit reached' });
+  if (store.data.users.length >= 5000) return res.status(429).json({ error: 'Account limit reached' });
   const v = {
     id: crypto.randomUUID(),
     name: String(name).trim().slice(0, 60),
@@ -867,7 +863,7 @@ app.post('/api/admin/venues/:id/owner', requireAuth, requireAdmin, (req, res) =>
     return res.status(400).json({ error: 'Password must be at least 8 characters' });
   }
   if (store.userByEmail(cleanEmail)) return res.status(400).json({ error: 'That email already has an account' });
-  if (store.data.users.length >= 500) return res.status(429).json({ error: 'Account limit reached' });
+  if (store.data.users.length >= 5000) return res.status(429).json({ error: 'Account limit reached' });
   store.data.users.push({
     id: crypto.randomUUID(), email: cleanEmail, passHash: hashPassword(password),
     name: '', venueId: v.id, role: 'owner', createdAt: new Date().toISOString()
@@ -882,10 +878,7 @@ app.patch('/api/admin/users/:id', requireAuth, requireAdmin, (req, res) => {
   const user = store.user(req.params.id);
   if (!user) return res.status(404).json({ error: 'No such user' });
   if (user.id === req.userId) return res.status(400).json({ error: 'You cannot change your own access — ask another platform admin' });
-  const { role, password, disabled, platformAdmin } = req.body || {};
-  if (role !== undefined && role !== 'owner' && role !== 'staff') {
-    return res.status(400).json({ error: 'Role must be owner or staff' });
-  }
+  const { password, disabled, platformAdmin } = req.body || {};
   if (password !== undefined && (typeof password !== 'string' || password.length < 8)) {
     return res.status(400).json({ error: 'Password must be at least 8 characters' });
   }
@@ -895,7 +888,6 @@ app.patch('/api/admin/users/:id', requireAuth, requireAdmin, (req, res) => {
   if (platformAdmin !== undefined && typeof platformAdmin !== 'boolean') {
     return res.status(400).json({ error: 'platformAdmin must be true or false' });
   }
-  if (role !== undefined) user.role = role;
   if (password !== undefined) { user.passHash = hashPassword(password); revokeSessions(user.id); }
   if (disabled !== undefined) {
     user.disabled = disabled;
@@ -965,7 +957,7 @@ app.post('/api/player/register', (req, res) => {
     if (registerLimited(req.ip)) {
       return res.status(429).json({ error: 'Too many new screens from this network — try again in an hour' });
     }
-    if (store.data.tvs.length >= 500) {
+    if (store.data.tvs.length >= 5000) {
       return res.status(429).json({ error: 'Screen limit reached' });
     }
     // Cloud mode: the screen starts unclaimed and shows a pairing code; an
@@ -1135,7 +1127,7 @@ app.post('/api/tvs/:id/approve', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-app.delete('/api/tvs/:id', requireAuth, requireOwner, (req, res) => {
+app.delete('/api/tvs/:id', requireAuth, (req, res) => {
   const i = store.data.tvs.findIndex(t => t.id === req.params.id && t.venueId === req.venueId);
   if (i === -1) return res.status(404).json({ error: 'No such TV' });
   const [tv] = store.data.tvs.splice(i, 1);
@@ -1281,7 +1273,7 @@ app.post('/api/folders', requireAuth, (req, res) => {
   res.json({ ok: true, folder: f });
 });
 
-app.delete('/api/folders/:id', requireAuth, requireOwner, (req, res) => {
+app.delete('/api/folders/:id', requireAuth, (req, res) => {
   const i = store.data.folders.findIndex(f => f.id === req.params.id && f.venueId === req.venueId);
   if (i === -1) return res.status(404).json({ error: 'No such folder' });
   store.data.folders.splice(i, 1);
@@ -1414,7 +1406,7 @@ app.post('/api/comps', requireAuth, (req, res) => {
 
 // Swap the file behind an existing photo/video while keeping its identity —
 // it stays in every playlist and assignment, and screens refresh instantly.
-app.post('/api/media/:id/replace', requireAuth, requireOwner, (req, res) => {
+app.post('/api/media/:id/replace', requireAuth, (req, res) => {
   const m = store.medium(req.params.id);
   if (!owned(req, m)) return res.status(404).json({ error: 'No such media' });
   if (m.slide || m.comp) return res.status(400).json({ error: 'Slides and designs are edited in the dashboard, not replaced' });
@@ -1451,7 +1443,7 @@ app.patch('/api/media/:id', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-app.delete('/api/media/:id', requireAuth, requireOwner, (req, res) => {
+app.delete('/api/media/:id', requireAuth, (req, res) => {
   const i = store.data.media.findIndex(m => m.id === req.params.id && m.venueId === req.venueId);
   if (i === -1) return res.status(404).json({ error: 'No such media' });
   const [m] = store.data.media.splice(i, 1);
@@ -1540,7 +1532,7 @@ app.post('/api/playlists', requireAuth, (req, res) => {
   res.json({ ok: true, playlist: pl });
 });
 
-app.delete('/api/playlists/:id', requireAuth, requireOwner, (req, res) => {
+app.delete('/api/playlists/:id', requireAuth, (req, res) => {
   const i = store.data.playlists.findIndex(p => p.id === req.params.id && p.venueId === req.venueId);
   if (i === -1) return res.status(404).json({ error: 'No such playlist' });
   store.data.playlists.splice(i, 1);
@@ -1624,7 +1616,7 @@ app.post('/api/themes', requireAuth, (req, res) => {
   res.json({ ok: true, theme });
 });
 
-app.delete('/api/themes/:id', requireAuth, requireOwner, (req, res) => {
+app.delete('/api/themes/:id', requireAuth, (req, res) => {
   const themes = store.venue(req.venueId).customThemes;
   const i = themes.findIndex(c => c.id === req.params.id);
   if (i === -1) return res.status(404).json({ error: 'No such theme' });
@@ -1639,7 +1631,7 @@ app.delete('/api/themes/:id', requireAuth, requireOwner, (req, res) => {
   res.json({ ok: true });
 });
 
-app.post('/api/settings', requireAuth, requireOwner, (req, res) => {
+app.post('/api/settings', requireAuth, (req, res) => {
   const { venueName: newVenueName, tz } = req.body || {};
   if (newVenueName !== undefined && !String(newVenueName).trim()) {
     return res.status(400).json({ error: 'Venue name cannot be empty' });
@@ -1663,7 +1655,7 @@ app.post('/api/settings', requireAuth, requireOwner, (req, res) => {
 // Only the venue's owner can grant or revoke; the grant is visible in the
 // venue's own dashboard the whole time, and revocation ends any support
 // session instantly.
-app.post('/api/support-access', requireAuth, requireOwner, (req, res) => {
+app.post('/api/support-access', requireAuth, (req, res) => {
   let hours = parseFloat(req.body?.hours);
   if (!Number.isFinite(hours)) hours = 24;
   hours = Math.min(Math.max(hours, 1), 168); // 1 hour to 7 days
@@ -1678,7 +1670,7 @@ app.post('/api/support-access', requireAuth, requireOwner, (req, res) => {
   res.json({ ok: true, expiresAt: venue.supportAccess.expiresAt });
 });
 
-app.delete('/api/support-access', requireAuth, requireOwner, (req, res) => {
+app.delete('/api/support-access', requireAuth, (req, res) => {
   const venue = store.venue(req.venueId);
   venue.supportAccess = null;
   // Any live support session dies with the grant: drop its tokens and

@@ -62,9 +62,8 @@
       <span id="switchToSignin" class="hidden">Already have an account? <button id="tabSignin" class="linklike" type="button">Sign in</button></span>
     </div>
     <div class="auth-help">
-      <p><b>Joining an existing venue?</b> A venue owner adds you from their Team page — ask them for an invite.</p>
-      <p><b>Forgot your password?</b> Any owner at your venue can reset it from Team.
-      Owners: <a href="mailto:srini.vanukuri@gmail.com?subject=ParkCast%20password%20reset">email support</a>.</p>
+      <p><b>Joining an existing venue?</b> Anyone already on your venue's team can add you from the Team page.</p>
+      <p><b>Forgot your password?</b> Anyone on your team can reset it from Team, or <a href="mailto:srini.vanukuri@gmail.com?subject=ParkCast%20password%20reset">email support</a>.</p>
     </div>
     <a class="hint back-home" href="/">← Back to ParkCast home</a>
   </div>
@@ -82,7 +81,7 @@
       <button class="tab" data-tab="playlists">Playlists <span id="playlistCount" class="pill"></span></button>
       <button class="tab" data-tab="events">Parties <span id="eventCount" class="pill"></span></button>
       <button class="tab" data-tab="themes">Themes <span id="themeCount" class="pill"></span></button>
-      <button class="tab hidden" data-tab="team" id="teamTab">Team <span id="teamCount" class="pill"></span></button>
+      <button class="tab" data-tab="team" id="teamTab">Team <span id="teamCount" class="pill"></span></button>
       <button class="tab hidden" data-tab="platform" id="platformTab">Platform <span id="platformCount" class="pill"></span></button>
     </nav>
     <div class="nav-foot">
@@ -186,11 +185,11 @@
     <div id="themeList" class="media-list"></div>
   </section>
 
-  <!-- Team (owner portal): manage who can sign in to this venue -->
+  <!-- Team: manage who can sign in to this venue -->
   <section id="tab-team" class="tabpane hidden">
     <div class="page-head">
       <h1>Team</h1>
-      <p>Who can sign in to this venue. Owners manage the team; staff run the screens.</p>
+      <p>Who can sign in to this venue. Everyone here can do everything.</p>
     </div>
     <div class="pane-tools">
       <button id="addMemberBtn" class="btn primary">+ Add member</button>
@@ -199,10 +198,6 @@
       <input id="tmName" placeholder="Name" maxlength="60">
       <input id="tmEmail" type="email" placeholder="Email" required>
       <input id="tmPassword" type="password" placeholder="Password (8+ characters)" required minlength="8">
-      <select id="tmRole">
-        <option value="staff">Staff</option>
-        <option value="owner">Owner</option>
-      </select>
       <button type="submit" class="btn primary">Create account</button>
       <button type="button" id="tmCancel" class="btn ghost">Cancel</button>
     </form>

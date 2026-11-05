@@ -7,9 +7,8 @@
   if (token) { try { localStorage.setItem('parkcast.token', token); } catch {} }
   let state = null;   // latest server snapshot
   let me = null;      // who is signed in: { email, name, role, venueName }
-  // Staff run the day; deleting and replacing things is owner work. Until the
-  // role is known we render as owner — the server enforces it regardless.
-  const isOwner = () => !me || me.role !== 'staff';
+  // One kind of account: everyone signed in can do everything.
+  const isOwner = () => true;
   let ws = null;
   let wsDelay = 1000;
 
@@ -265,11 +264,10 @@
       bootRetry = setTimeout(enterApp, 4000);
       return;
     }
-    // The Team page (owner portal) only exists for owners.
     try { me = await api('/api/me'); } catch { me = null; }
-    $('teamTab').classList.toggle('hidden', !(me && me.role === 'owner'));
+    $('teamTab').classList.remove('hidden');
     $('platformTab').classList.toggle('hidden', !(me && me.platformAdmin));
-    render(); // re-render now that the role is known (staff lose delete controls)
+    render();
     connectWs();
     refreshRollerCard();
   }
@@ -2128,12 +2126,10 @@
           <b>${esc(m.name || m.email)}${m.you ? ' <span class="you-chip">you</span>' : ''}</b>
           <span class="team-mail">${esc(m.email)}</span>
         </div>
-        <span class="role-chip ${m.role}">${m.role === 'owner' ? 'Owner' : 'Staff'}</span>
         ${m.you ? '' : `
         <div class="kebab">
           <button class="btn tiny kebab-btn" title="More actions" aria-label="More actions">⋯</button>
           <div class="menu hidden">
-            <button class="menu-item" data-act="role">${m.role === 'owner' ? 'Make staff' : 'Make owner'}</button>
             <button class="menu-item" data-act="password">Reset password</button>
             <button class="menu-item danger" data-act="remove">Remove access</button>
           </div>
@@ -2152,11 +2148,7 @@
           if (!act) return;
           closeAllMenus();
           try {
-            if (act === 'role') {
-              const next = m.role === 'owner' ? 'staff' : 'owner';
-              await api(`/api/team/${m.id}`, { method: 'PATCH', body: JSON.stringify({ role: next }) });
-              toast(`${m.name || m.email} is now ${next === 'owner' ? 'an owner' : 'staff'}`);
-            } else if (act === 'password') {
+            if (act === 'password') {
               const v = await uiPrompt({ title: `Reset password`,
                 fields: [{ id: 'pw', label: `New password for ${m.email} (8+ characters)`, type: 'password' }],
                 submitLabel: 'Change password' });
@@ -2271,12 +2263,10 @@
           <b>${esc(m.name || m.email)}${self ? ' <span class="you-chip">you</span>' : ''}${m.disabled ? ' <span class="chip-disabled">DISABLED</span>' : ''}${m.platformAdmin ? ' <span class="chip-home">ADMIN</span>' : ''}</b>
           <span class="team-mail">${esc(m.email)}</span>
         </div>
-        <span class="role-chip ${m.role}">${m.role === 'owner' ? 'Owner' : 'Staff'}</span>
         ${self ? '' : `
         <div class="kebab">
           <button class="btn tiny kebab-btn" title="More actions" aria-label="More actions">⋯</button>
           <div class="menu hidden">
-            <button class="menu-item" data-act="role">${m.role === 'owner' ? 'Make staff' : 'Make owner'}</button>
             <button class="menu-item" data-act="password">Reset password</button>
             <button class="menu-item" data-act="disable">${m.disabled ? 'Restore access' : 'Disable access'}</button>
             <button class="menu-item danger" data-act="remove">Remove account</button>
@@ -2296,10 +2286,7 @@
           if (!act) return;
           closeAllMenus();
           try {
-            if (act === 'role') {
-              await api(`/api/admin/users/${m.id}`, { method: 'PATCH', body: JSON.stringify({ role: m.role === 'owner' ? 'staff' : 'owner' }) });
-              toast('Role updated');
-            } else if (act === 'password') {
+            if (act === 'password') {
               const v = await uiPrompt({ title: `Reset password`,
                 fields: [{ id: 'pw', label: `New password for ${m.email} (8+ characters)`, type: 'password' }],
                 submitLabel: 'Change password' });
@@ -2470,7 +2457,7 @@
     try {
       const r = await api('/api/team', { method: 'POST', body: JSON.stringify({
         name: $('tmName').value, email: $('tmEmail').value,
-        password: $('tmPassword').value, role: $('tmRole').value
+        password: $('tmPassword').value
       }) });
       $('memberForm').reset();
       $('memberForm').classList.add('hidden');

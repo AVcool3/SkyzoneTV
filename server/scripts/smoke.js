@@ -488,9 +488,9 @@ const run = async () => {
   const meA = await api(token, 'GET', '/api/me');
   check('legacy admin maps to default venue', meA.status === 200 && meA.data.venueName === state.settings.venueName);
 
-  // ---- owner portal: add, change, and cut team access ----
+  // ---- team: one kind of account, everyone can do everything ----
   const team0 = await api(tokenB, 'GET', '/api/team');
-  check('owner sees team list with self marked',
+  check('team list with self marked',
     team0.status === 200 && team0.data.members.some(m => m.email === vbEmail && m.you));
   const selfId = team0.data.members.find(m => m.you).id;
   // leftovers from an interrupted run
@@ -501,103 +501,88 @@ const run = async () => {
   const addStaff = await api(tokenB, 'POST', '/api/team', {
     name: 'Front Desk', email: 'smoke-staff@test.dev', password: 'staff-pass-99', role: 'staff'
   });
-  check('owner adds a staff account', addStaff.status === 200 && addStaff.data.member?.role === 'staff');
+  check('adding a member ignores any role and gives full access',
+    addStaff.status === 200 && addStaff.data.member?.role === 'owner');
   const staffId = addStaff.data.member.id;
   const staffIn = await api(null, 'POST', '/api/signin', { email: 'smoke-staff@test.dev', password: 'staff-pass-99' });
-  check('staff can sign in', staffIn.status === 200 && !!staffIn.data.token);
+  check('new member can sign in', staffIn.status === 200 && !!staffIn.data.token);
   const tokenS = staffIn.data.token;
   const staffState = await api(tokenS, 'GET', '/api/state');
-  check('staff lands in the owner venue', staffState.data.settings?.venueName === 'Smoke Venue B');
-  const meS = await api(tokenS, 'GET', '/api/me');
-  check('me reports staff role', meS.data.role === 'staff');
-
-  check('staff cannot open the owner portal', (await api(tokenS, 'GET', '/api/team')).status === 403);
-  check('staff cannot add accounts',
-    (await api(tokenS, 'POST', '/api/team', { email: 'x@y.dev', password: '12345678' })).status === 403);
-  check('staff cannot rename the venue',
-    (await api(tokenS, 'POST', '/api/settings', { venueName: 'Hacked' })).status === 403);
-  check('owner cannot remove self', (await api(tokenB, 'DELETE', `/api/team/${selfId}`)).status === 400);
-
-  const promote = await api(tokenB, 'PATCH', `/api/team/${staffId}`, { role: 'owner' });
-  check('owner can promote staff to owner', promote.status === 200 && promote.data.member.role === 'owner');
-  check('promoted member can open the portal', (await api(tokenS, 'GET', '/api/team')).status === 200);
-  await api(tokenB, 'PATCH', `/api/team/${staffId}`, { role: 'staff' });
-  check('demotion applies immediately', (await api(tokenS, 'GET', '/api/team')).status === 403);
+  check('new member lands in the same venue', staffState.data.settings?.venueName === 'Smoke Venue B');
+  check('me reports full access', (await api(tokenS, 'GET', '/api/me')).data.role === 'owner');
+  check('new member can open Team', (await api(tokenS, 'GET', '/api/team')).status === 200);
+  check('role changes are ignored',
+    (await api(tokenB, 'PATCH', `/api/team/${staffId}`, { role: 'staff' })).data.member?.role === 'owner');
+  check('cannot remove self', (await api(tokenB, 'DELETE', `/api/team/${selfId}`)).status === 400);
 
   const resetPw = await api(tokenB, 'PATCH', `/api/team/${staffId}`, { password: 'new-staff-pass1' });
-  check('owner can reset a member password', resetPw.status === 200);
+  check('teammate can reset a member password', resetPw.status === 200);
   check('password reset revokes old sessions', (await api(tokenS, 'GET', '/api/state')).status === 401);
   const staffIn2 = await api(null, 'POST', '/api/signin', { email: 'smoke-staff@test.dev', password: 'new-staff-pass1' });
   check('new password works', staffIn2.status === 200);
 
   check('cross-venue team access blocked',
-    (await api(token, 'PATCH', `/api/team/${staffId}`, { role: 'owner' })).status === 404);
+    (await api(token, 'PATCH', `/api/team/${staffId}`, { password: 'cross-venue-1' })).status === 404);
 
-  check('owner cuts access', (await api(tokenB, 'DELETE', `/api/team/${staffId}`)).status === 200);
-  check('cut member loses access immediately',
+  // Wrong-password limit is per person: one person's typos on the park's
+  // shared Wi-Fi never lock out a teammate signing in from the same network.
+  for (let i = 0; i < 12; i++) {
+    await api(null, 'POST', '/api/signin', { email: 'smoke-staff@test.dev', password: 'wrong-' + i });
+  }
+  check('repeated wrong passwords lock only that person',
+    (await api(null, 'POST', '/api/signin', { email: 'smoke-staff@test.dev', password: 'new-staff-pass1' })).status === 429);
+  check('a teammate on the same network still signs in',
+    (await api(null, 'POST', '/api/signin', { email: vbEmail, password: vbPass })).status === 200);
+
+  // Sessions don't silently expire across a park's many devices.
+  const firstDevice = (await api(null, 'POST', '/api/signin', { email: vbEmail, password: vbPass })).data.token;
+  for (let i = 0; i < 14; i++) await api(null, 'POST', '/api/signin', { email: vbEmail, password: vbPass });
+  check('signing in on 15 devices keeps the first one signed in',
+    (await api(firstDevice, 'GET', '/api/state')).status === 200);
+
+  check('remove a member', (await api(tokenB, 'DELETE', `/api/team/${staffId}`)).status === 200);
+  check('removed member loses access immediately',
     (await api(staffIn2.data.token, 'GET', '/api/state')).status === 401);
-  check('cut member cannot sign back in',
-    (await api(null, 'POST', '/api/signin', { email: 'smoke-staff@test.dev', password: 'new-staff-pass1' })).status === 401);
 
-  // ---- staff can run the day, but destructive actions are owner-only ----
-  // A desk account in the DEFAULT venue, where this suite's screens and media
-  // live, so the restrictions are tested against real objects.
+  // ---- every member can do everything, deletes included ----
   const adminTeam = await api(token, 'GET', '/api/team');
   for (const m of adminTeam.data.members || []) {
     if (m.email === 'smoke-desk@test.dev') await api(token, 'DELETE', `/api/team/${m.id}`);
   }
   const deskAdd = await api(token, 'POST', '/api/team', {
-    name: 'Desk', email: 'smoke-desk@test.dev', password: 'desk-pass-99', role: 'staff'
+    name: 'Desk', email: 'smoke-desk@test.dev', password: 'desk-pass-99'
   });
-  check('legacy admin can add staff to default venue', deskAdd.status === 200);
+  check('legacy admin can add a member to the default venue', deskAdd.status === 200);
   const deskIn = await api(null, 'POST', '/api/signin', { email: 'smoke-desk@test.dev', password: 'desk-pass-99' });
   const tokenD = deskIn.data.token;
 
-  // staff CAN run the operational day
-  check('staff can power a screen',
+  check('member can power a screen',
     (await api(tokenD, 'POST', `/api/tvs/${tvId}/power`, { power: 'on' })).status === 200);
-  check('staff can start a takeover',
+  check('member can start a takeover',
     (await api(tokenD, 'POST', `/api/tvs/${tvId}/test-birthday`, { name: 'DeskKid', durationMin: 1 })).status === 200);
-  check('staff can stop a takeover',
+  check('member can stop a takeover',
     (await api(tokenD, 'POST', `/api/tvs/${tvId}/clear-override`)).status === 200);
-  check('staff can assign media',
+  check('member can assign media',
     (await api(tokenD, 'POST', `/api/tvs/${tvId}/assign`, { mediaIds: [mediaId] })).status === 200);
-  check('staff can rename a screen',
+  check('member can rename a screen',
     (await api(tokenD, 'PATCH', `/api/tvs/${tvId}`, { name: 'Smoke Room 1' })).status === 200);
-
-  // staff CANNOT destroy or replace
-  check('staff cannot delete a screen', (await api(tokenD, 'DELETE', `/api/tvs/${tvId}`)).status === 403);
-  check('staff cannot delete media', (await api(tokenD, 'DELETE', `/api/media/${mediaId}`)).status === 403);
-  const repFormD = new FormData();
-  repFormD.append('file', new Blob([new Uint8Array(100)], { type: 'video/mp4' }), 'smoke-x.mp4');
-  const repD = await fetch(BASE + `/api/media/${mediaId}/replace`, {
-    method: 'POST', headers: { Authorization: 'Bearer ' + tokenD }, body: repFormD
-  });
-  check('staff cannot replace a file', repD.status === 403);
 
   const guardPl = await api(token, 'POST', '/api/playlists', { name: 'Smoke Guard', items: [{ mediaId }] });
   const guardFo = await api(token, 'POST', '/api/folders', { name: 'Smoke Guard' });
   const guardTh = await api(token, 'POST', '/api/themes', {
     name: 'Smoke Guard', bg: ['#101010', '#202020'], headline: { fill: '#ffffff', stroke: '#000000' }
   });
-  check('staff cannot delete a playlist',
-    (await api(tokenD, 'DELETE', `/api/playlists/${guardPl.data.playlist.id}`)).status === 403);
-  check('staff cannot delete a folder',
-    (await api(tokenD, 'DELETE', `/api/folders/${guardFo.data.folder.id}`)).status === 403);
-  check('staff cannot delete a theme',
-    (await api(tokenD, 'DELETE', `/api/themes/${guardTh.data.theme.id}`)).status === 403);
-  check('owner still deletes fine',
-    (await api(token, 'DELETE', `/api/playlists/${guardPl.data.playlist.id}`)).status === 200 &&
-    (await api(token, 'DELETE', `/api/folders/${guardFo.data.folder.id}`)).status === 200 &&
-    (await api(token, 'DELETE', `/api/themes/${guardTh.data.theme.id}`)).status === 200);
+  check('member can delete a playlist, folder and theme',
+    (await api(tokenD, 'DELETE', `/api/playlists/${guardPl.data.playlist.id}`)).status === 200 &&
+    (await api(tokenD, 'DELETE', `/api/folders/${guardFo.data.folder.id}`)).status === 200 &&
+    (await api(tokenD, 'DELETE', `/api/themes/${guardTh.data.theme.id}`)).status === 200);
 
-  // parties stay fully operational for staff, including deleting one
   const deskEv = await api(tokenD, 'POST', '/api/events', {
     tvId, name: 'DeskParty', startsAt: '2099-06-01T10:00:00.000Z', durationMin: 5
   });
-  check('staff can add a party', deskEv.status === 200);
+  check('member can add a party', deskEv.status === 200);
   if (deskEv.data.event?.id) {
-    check('staff can delete a party',
+    check('member can delete a party',
       (await api(tokenD, 'DELETE', `/api/events/${deskEv.data.event.id}`)).status === 200);
   }
   await api(token, 'DELETE', `/api/team/${deskAdd.data.member.id}`);
@@ -684,8 +669,6 @@ const run = async () => {
     govIn.status === 200 &&
     (await api(govIn.data.token, 'GET', '/api/state')).data.settings?.venueName === 'Smoke Venue B');
 
-  const govRole = await api(token, 'PATCH', `/api/admin/users/${govId}`, { role: 'staff' });
-  check('admin changes a role', govRole.status === 200);
   await api(token, 'PATCH', `/api/admin/users/${govId}`, { password: 'gov-pass-new1' });
   check('admin password reset revokes sessions',
     (await api(govIn.data.token, 'GET', '/api/state')).status === 401);
@@ -759,8 +742,8 @@ const run = async () => {
   check('deleted venue gone from admin list',
     !(await api(token, 'GET', '/api/admin/venues')).data.venues.some(v => v.name === 'Smoke Del Venue'));
 
-  // Scenario 2: a venue with members — staff self-delete works, a venue
-  // cannot lose its only owner, and the owner can erase the whole venue.
+  // Scenario 2: a venue with members — anyone can leave on their own, and
+  // a member can erase the whole venue.
   const dv2Email = 'smoke-del2@test.dev', dv2Pass = 'del2-pass-9999';
   let dv2Up = await api(null, 'POST', '/api/signup', { venue: 'Smoke Del Venue 2', name: 'Own', email: dv2Email, password: dv2Pass });
   if (dv2Up.status === 400) {
@@ -770,10 +753,8 @@ const run = async () => {
   }
   const dv2Tok = dv2Up.data.token;
   await api(dv2Tok, 'POST', '/api/team', { name: 'Staffy', email: 'smoke-del2-staff@test.dev', password: 'del2-staff-99', role: 'staff' });
-  check('sole owner with members cannot self-delete',
-    (await api(dv2Tok, 'DELETE', '/api/me', { password: dv2Pass })).status === 400);
   const dv2Staff = await api(null, 'POST', '/api/signin', { email: 'smoke-del2-staff@test.dev', password: 'del2-staff-99' });
-  check('staff self-delete works',
+  check('member self-delete works',
     (await api(dv2Staff.data.token, 'DELETE', '/api/me', { password: 'del2-staff-99' })).status === 200);
   check('venue delete needs the exact name',
     (await api(dv2Tok, 'DELETE', '/api/venue', { password: dv2Pass, confirmName: 'Wrong Name' })).status === 400);
