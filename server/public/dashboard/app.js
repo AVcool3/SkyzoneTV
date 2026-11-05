@@ -423,7 +423,46 @@
     return key;
   }
 
+  const DAY_MS = 86400000;
+  // "How long offline" is judged on the server's clock, not the viewer's.
+  const serverNow = () => Date.parse(state.serverTime) || Date.now();
+  const isStale = tv => !tv.online && tv.lastSeen && serverNow() - Date.parse(tv.lastSeen) > DAY_MS;
+  const clockWrong = tv => Math.abs(tv.clockSkewMs || 0) >= 5 * 60000;
+
+  // One line that says whether every screen is good, and what to do if not.
+  function renderTvHealth() {
+    const box = $('tvHealth');
+    const paired = state.tvs.filter(t => t.approved !== false);
+    if (paired.length === 0) { box.classList.add('hidden'); return; }
+    const online = paired.filter(t => t.online);
+    const stale = paired.filter(isStale);
+    const offlineRecent = paired.filter(t => !t.online && !isStale(t));
+    const clock = paired.filter(clockWrong);
+    const old = paired.filter(t => t.device && t.device.old);
+    const parts = [`<b>${paired.length}</b> screen${paired.length === 1 ? '' : 's'}`,
+      `<span class="h-ok">${online.length} online</span>`];
+    if (offlineRecent.length) parts.push(`<span class="h-warn">${offlineRecent.length} offline</span>`);
+    if (stale.length) parts.push(`<span class="h-bad">${stale.length} not seen for over a day</span>`);
+    if (clock.length) parts.push(`<span class="h-bad">${clock.length} with a wrong clock</span>`);
+    if (old.length) parts.push(`<span class="h-bad">${old.length} too old to stay connected</span>`);
+    const allGood = online.length === paired.length && !clock.length && !old.length;
+    box.className = 'tv-health' + (allGood ? ' good' : '');
+    box.innerHTML = `<div class="h-line">${allGood ? '✓ Every screen is online and healthy · ' : ''}${parts.join(' · ')}</div>
+      ${stale.length && isOwner() ? `<button class="btn tiny danger" id="removeStaleBtn">Remove ${stale.length} screen${stale.length === 1 ? '' : 's'} not seen for over a day…</button>` : ''}`;
+    const btn = $('removeStaleBtn');
+    if (btn) btn.addEventListener('click', async () => {
+      const names = stale.map(t => `• ${t.name} — last seen ${fmtTime(t.lastSeen)}`).join('\n');
+      const parties = state.events.filter(e => e.status === 'scheduled' && stale.some(t => t.id === e.tvId)).length;
+      if (!confirm(`Remove these screens?\n\n${names}\n\n` +
+        (parties ? `${parties} scheduled part${parties === 1 ? 'y is' : 'ies are'} assigned to them and will be removed too.\n` : '') +
+        'To keep a screen\'s name, playlist and parties, use "Replace TV" on it instead.')) return;
+      for (const t of stale) await api(`/api/tvs/${t.id}`, { method: 'DELETE' }).catch(e => toast(e.message, true));
+      toast(`Removed ${stale.length} screen${stale.length === 1 ? '' : 's'}`);
+    });
+  }
+
   function renderTvs() {
+    renderTvHealth();
     const grid = $('tvGrid');
     grid.innerHTML = '';
     if (state.tvs.length === 0) {
@@ -474,7 +513,10 @@
           ${tv.power === 'off' ? '<span class="badge off">SCREEN OFF</span>' : ''}
           ${tv.override ? `<span class="badge bday">PARTY · ${esc(tv.override.name)}</span>` : ''}
           ${Math.abs(tv.clockSkewMs || 0) >= 5 * 60000 ? '<span class="badge clock">CLOCK WRONG</span>' : ''}
+          ${isStale(tv) ? `<span class="badge clock">NOT SEEN ${Math.floor((serverNow() - Date.parse(tv.lastSeen)) / DAY_MS)}D</span>` : ''}
         </div>
+        ${tv.device && tv.device.old ? '<div class="tv-warn">This TV’s system is too old to trust the server’s security certificate, so it keeps dropping out. Replace the streaming stick with a current one.</div>' : ''}
+        ${!tv.online && tv.lastSeen ? `<div class="tv-meta">Last seen ${esc(fmtTime(tv.lastSeen))}. If this TV was replaced or reinstalled, use <b>Replace TV</b> so it keeps this screen’s name, playlist and parties.</div>` : ''}
         ${Math.abs(tv.clockSkewMs || 0) >= 5 * 60000 ? `<div class="tv-warn">This TV thinks it's ${esc(fmtTime(new Date(Date.now() + tv.clockSkewMs).toISOString()))}. Fix its date and time (or let it reach an internet time server) — a wrong clock stops it connecting.</div>` : ''}
         <div class="tv-now">${tv.power === 'off' ? 'Screen off' :
           tv.override ? `Birthday takeover until ${fmtTime(tv.override.endsAt)}` :
@@ -482,7 +524,11 @@
           playlistNames.length ? `Loop: <span class="playing">${esc(playlistNames.join(' → '))}</span>` :
           'No media assigned'}</div>
         ${tv.override ? '<div class="tv-actions"><button class="btn tiny" data-act="clear">Stop takeover</button></div>' : ''}
-        <button class="btn content-btn" data-act="media">Content…</button>`;
+        <button class="btn content-btn" data-act="media">Content…</button>
+        <div class="tv-foot">
+          <span class="tv-meta">${esc([tv.device ? tv.device.label : '', tv.pairedAt ? `paired ${fmtTime(tv.pairedAt)}` : ''].filter(Boolean).join(' · '))}</span>
+          <button class="btn tiny${tv.online ? '' : ' primary'}" data-act="replace" title="Put a different TV or reinstalled app in this screen's place">Replace TV…</button>
+        </div>`;
 
       const nameInput = card.querySelector('.tv-name');
       nameInput.addEventListener('change', () => {
@@ -497,6 +543,17 @@
       card.querySelector('[data-act="power"]').addEventListener('click', () =>
         api(`/api/tvs/${tv.id}/power`, { method: 'POST', body: JSON.stringify({ power: tv.power === 'on' ? 'off' : 'on' }) })
           .catch(e => toast(e.message, true)));
+
+      card.querySelector('[data-act="replace"]').addEventListener('click', async () => {
+        const v = await uiPrompt({ title: `Replace TV — ${tv.name}`,
+          fields: [{ id: 'code', label: 'Enter the 6-digit code on the new TV. It takes over this screen’s name, playlist and parties.', inputmode: 'numeric', maxlength: 6, placeholder: '000000' }],
+          submitLabel: 'Replace TV' });
+        const code = v && v.code;
+        if (!code) return;
+        api(`/api/tvs/${tv.id}/replace`, { method: 'POST', body: JSON.stringify({ code }) })
+          .then(() => toast(`“${tv.name}” is now on the new TV — same playlist and parties`))
+          .catch(e => toast(e.message, true));
+      });
 
       const clearBtn = card.querySelector('[data-act="clear"]');
       if (clearBtn) clearBtn.addEventListener('click', () =>

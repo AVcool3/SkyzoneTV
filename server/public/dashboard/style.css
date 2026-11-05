@@ -177,6 +177,15 @@ input:focus, select:focus { outline: 2px solid var(--blue); outline-offset: -1px
 .badge.clock { background: #fde8e8; color: #b42318; }
 .tv-warn { font-size: 13px; line-height: 1.45; color: #b42318; background: #fff5f5; border-radius: 8px; padding: 8px 10px; }
 .tv-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.tv-foot { display: flex; align-items: center; gap: 8px; justify-content: space-between; margin-top: 2px; }
+.tv-meta { font-size: 12px; color: var(--muted); line-height: 1.4; }
+.tv-health { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 14px;
+  padding: 10px 14px; border-radius: 10px; background: #fff7ed; border: 1px solid #fed7aa; font-size: 14px; }
+.tv-health.good { background: #f0fdf4; border-color: #bbf7d0; }
+.tv-health .h-line { flex: 1 1 auto; }
+.tv-health .h-ok { color: #15803d; font-weight: 600; }
+.tv-health .h-warn { color: #b45309; font-weight: 600; }
+.tv-health .h-bad { color: #b42318; font-weight: 600; }
 
 /* ---- Media list ---- */
 .media-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }

@@ -216,6 +216,26 @@ function validFolderId(venueId, folderId) {
   return folderId && store.data.folders.some(f => f.id === folderId && f.venueId === venueId) ? folderId : null;
 }
 
+// What a screen actually is, from its browser's user agent. Android older
+// than 7.1 lacks the root certificate behind Let's Encrypt, which Render uses
+// for *.onrender.com part of the time — those TVs connect only intermittently.
+function describeDevice(ua) {
+  if (!ua) return null;
+  const android = /Android (\d+)(?:\.(\d+))?/.exec(ua);
+  const chrome = /Chrome\/(\d+)/.exec(ua);
+  const kind = /\bAFT[A-Z0-9]*\b|Fire TV/.test(ua) ? 'Fire TV'
+    : /CrKey|Chromecast|Google ?TV|Android TV|BRAVIA|SHIELD/i.test(ua) ? 'Google TV / Android TV'
+    : /Tizen/.test(ua) ? 'Samsung TV' : /Web0S|webOS/i.test(ua) ? 'LG TV'
+    : android ? 'Android device' : /Macintosh|Windows|X11|CrOS/.test(ua) ? 'Computer browser' : 'Browser';
+  const model = (/\b(AFT[A-Z0-9]+)\b/.exec(ua) || [])[1];
+  const oldAndroid = !!android && (Number(android[1]) < 7 || (Number(android[1]) === 7 && Number(android[2] || 0) < 1));
+  return {
+    label: [kind, model, android ? `Android ${android[1]}${android[2] ? '.' + android[2] : ''}` : null,
+      chrome ? `Chrome ${chrome[1]}` : null, /; wv\)/.test(ua) ? 'ParkCast app' : null].filter(Boolean).join(' · '),
+    old: oldAndroid
+  };
+}
+
 function dashboardSnapshot(venueId) {
   const venue = store.venue(venueId) || store.venue(store.defaultVenueId());
   return {
@@ -229,6 +249,8 @@ function dashboardSnapshot(venueId) {
       pairCode: t.approved === false ? t.pairCode : undefined,
       nowPlaying: t.nowPlaying || null,
       clockSkewMs: t.clockSkewMs || 0,
+      pairedAt: t.pairedAt || t.createdAt || null,
+      device: describeDevice(t.device?.ua),
       override: t.override ? { name: t.override.name, endsAt: t.override.endsAt } : null
     })),
     media: store.mediaOf(venue.id).map(mediaPublic),
@@ -1039,11 +1061,46 @@ app.post('/api/tvs/claim', requireAuth, (req, res) => {
   claimAttempts.delete(req.userId);
   tv.venueId = req.venueId;
   tv.approved = true;
+  tv.pairedAt = new Date().toISOString();
   tv.name = nextTvName(req.venueId);
   store.save();
   pushTv(tv.id);
   pushDashboards();
   res.json({ ok: true, tv: { id: tv.id, name: tv.name } });
+});
+
+// Replace TV: the device showing `code` takes over an existing screen, so
+// the screen keeps its name, playlist, content and scheduled parties.
+// (Deleting a screen and adding a new one would drop its parties.)
+app.post('/api/tvs/:id/replace', requireAuth, (req, res) => {
+  const screen = store.tv(req.params.id);
+  if (!owned(req, screen)) return res.status(404).json({ error: 'No such screen' });
+  if (claimLimited(req.userId)) {
+    return res.status(429).json({ error: 'Too many attempts — wait 15 minutes and read the code off the TV again' });
+  }
+  const code = String(req.body?.code || '').replace(/\D/g, '');
+  if (code.length !== 6) return res.status(400).json({ error: 'Enter the 6-digit code shown on the TV' });
+  const device = store.data.tvs.find(t => !t.venueId && t.pairCode === code);
+  if (!device) return res.status(404).json({ error: 'No waiting screen has that code — check the TV and try again' });
+  const sockets = [...(playerSockets.get(device.id) || [])].filter(ws => ws.readyState === ws.OPEN);
+  if (sockets.length === 0) {
+    return res.status(409).json({ error: 'That TV isn’t connected right now — wait until it shows its code, then try again' });
+  }
+  claimAttempts.delete(req.userId);
+  // A device still holding this screen hands it over and goes back to pairing.
+  for (const ws of playerSockets.get(screen.id) || []) {
+    if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'reregister' }));
+  }
+  playerSockets.delete(screen.id);
+  for (const ws of sockets) ws.send(JSON.stringify({ type: 'adopt', tvId: screen.id }));
+  playerSockets.delete(device.id);
+  store.data.tvs = store.data.tvs.filter(t => t.id !== device.id);
+  screen.pairedAt = new Date().toISOString();
+  screen.device = device.device || null;
+  screen.clockSkewMs = 0;
+  store.save();
+  pushDashboards();
+  res.json({ ok: true, tv: { id: screen.id, name: screen.name } });
 });
 
 // ---- Dashboard API ----
@@ -2057,9 +2114,12 @@ wss.on('connection', (ws, req) => {
       // connections once the server's certificate is newer than that date.
       const skew = Number.isFinite(msg.clockSkewMs)
         ? Math.round(Math.max(-1e12, Math.min(1e12, msg.clockSkewMs)) / 60_000) * 60_000 : 0;
-      const changed = tv.nowPlaying !== nowPlaying || (tv.clockSkewMs || 0) !== skew;
+      const ua = typeof msg.device?.ua === 'string' ? msg.device.ua.slice(0, 300) : null;
+      const deviceChanged = !!ua && tv.device?.ua !== ua;
+      const changed = tv.nowPlaying !== nowPlaying || (tv.clockSkewMs || 0) !== skew || deviceChanged;
       tv.nowPlaying = nowPlaying;
       tv.clockSkewMs = skew;
+      if (deviceChanged) tv.device = { ua };
       // Persist heartbeats at most once a minute per TV — every 10s status
       // from every screen was rewriting the whole db.json continuously.
       if (changed || !tv._seenSavedAt || Date.now() - tv._seenSavedAt > 60_000) {

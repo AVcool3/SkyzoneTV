@@ -237,6 +237,13 @@
           if (msg.approved !== false) localStorage.setItem('parkcast.lastState', e.data);
         } catch (_err) {}
       }
+      else if (msg.type === 'adopt' && typeof msg.tvId === 'string' && msg.tvId) {
+        // "Replace TV": this device takes over an existing screen's identity
+        // (name, playlist, parties) instead of joining as a new one.
+        tvId = msg.tvId;
+        try { localStorage.setItem('parkcast.tvId', tvId); } catch (_err) {}
+        ws.send(JSON.stringify({ type: 'hello', role: 'player', tvId }));
+      }
       else if (msg.type === 'reregister') {
         try {
           localStorage.removeItem('parkcast.tvId');
@@ -273,7 +280,7 @@
     else if (state && state.override) nowPlaying = 'Party takeover';
     else if (playlist[current]) nowPlaying = playlist[current].label;
     else nowPlaying = 'Idle';
-    ws.send(JSON.stringify({ type: 'status', nowPlaying, clockSkewMs }));
+    ws.send(JSON.stringify({ type: 'status', nowPlaying, clockSkewMs, device: { ua: navigator.userAgent } }));
   }
   setInterval(reportStatus, 10000);
 
