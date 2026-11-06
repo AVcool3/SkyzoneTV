@@ -426,6 +426,14 @@
   const serverNow = () => Date.parse(state.serverTime) || Date.now();
   const isStale = tv => !tv.online && tv.lastSeen && serverNow() - Date.parse(tv.lastSeen) > DAY_MS;
   const clockWrong = tv => Math.abs(tv.clockSkewMs || 0) >= 5 * 60000;
+  // Crashed/restarted or froze repeatedly in the last 24 hours (the TV counts).
+  const unstable = tv => !!tv.health && (tv.health.restarts >= 4 || tv.health.freezes >= 3);
+  function unstableWarning(tv) {
+    const h = tv.health, bits = [];
+    if (h.restarts) bits.push(`restarted ${h.restarts} time${h.restarts === 1 ? '' : 's'}`);
+    if (h.freezes) bits.push(`froze ${h.freezes} time${h.freezes === 1 ? '' : 's'}`);
+    return `<div class="tv-warn">This TV ${bits.join(' and ')} in the last 24 hours. ParkCast restarts its picture on its own, but fix the cause: power the stick from its own wall adapter (not the TV’s USB port), keep it out of hot spots behind the TV, and use 1080p videos.</div>`;
+  }
 
   // One line that says whether every screen is good, and what to do if not.
   function renderTvHealth() {
@@ -437,13 +445,15 @@
     const offlineRecent = paired.filter(t => !t.online && !isStale(t));
     const clock = paired.filter(clockWrong);
     const old = paired.filter(t => t.device && t.device.old);
+    const shaky = paired.filter(unstable);
     const parts = [`<b>${paired.length}</b> screen${paired.length === 1 ? '' : 's'}`,
       `<span class="h-ok">${online.length} online</span>`];
     if (offlineRecent.length) parts.push(`<span class="h-warn">${offlineRecent.length} offline</span>`);
     if (stale.length) parts.push(`<span class="h-bad">${stale.length} not seen for over a day</span>`);
     if (clock.length) parts.push(`<span class="h-bad">${clock.length} with a wrong clock</span>`);
     if (old.length) parts.push(`<span class="h-bad">${old.length} too old to stay connected</span>`);
-    const allGood = online.length === paired.length && !clock.length && !old.length;
+    if (shaky.length) parts.push(`<span class="h-bad">${shaky.length} crashing or freezing</span>`);
+    const allGood = online.length === paired.length && !clock.length && !old.length && !shaky.length;
     box.className = 'tv-health' + (allGood ? ' good' : '');
     box.innerHTML = `<div class="h-line">${allGood ? '✓ Every screen is online and healthy · ' : ''}${parts.join(' · ')}</div>
       ${stale.length && isOwner() ? `<button class="btn tiny danger" id="removeStaleBtn">Remove ${stale.length} screen${stale.length === 1 ? '' : 's'} not seen for over a day…</button>` : ''}`;
@@ -511,9 +521,11 @@
           ${tv.power === 'off' ? '<span class="badge off">SCREEN OFF</span>' : ''}
           ${tv.override ? `<span class="badge bday">PARTY · ${esc(tv.override.name)}</span>` : ''}
           ${Math.abs(tv.clockSkewMs || 0) >= 5 * 60000 ? '<span class="badge clock">CLOCK WRONG</span>' : ''}
+          ${unstable(tv) ? '<span class="badge clock">UNSTABLE</span>' : ''}
           ${isStale(tv) ? `<span class="badge clock">NOT SEEN ${Math.floor((serverNow() - Date.parse(tv.lastSeen)) / DAY_MS)}D</span>` : ''}
         </div>
         ${tv.device && tv.device.old ? '<div class="tv-warn">This TV’s system is too old to trust the server’s security certificate, so it keeps dropping out. Replace the streaming stick with a current one.</div>' : ''}
+        ${unstable(tv) ? unstableWarning(tv) : ''}
         ${!tv.online && tv.lastSeen ? `<div class="tv-meta">Last seen ${esc(fmtTime(tv.lastSeen))}. If this TV was replaced or reinstalled, use <b>Replace TV</b> so it keeps this screen’s name, playlist and parties.</div>` : ''}
         ${Math.abs(tv.clockSkewMs || 0) >= 5 * 60000 ? `<div class="tv-warn">This TV thinks it's ${esc(fmtTime(new Date(Date.now() + tv.clockSkewMs).toISOString()))}. Fix its date and time (or let it reach an internet time server) — a wrong clock stops it connecting.</div>` : ''}
         <div class="tv-now">${tv.power === 'off' ? 'Screen off' :

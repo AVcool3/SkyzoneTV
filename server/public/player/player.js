@@ -37,6 +37,36 @@
     const says = new Date().toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
     return `This TV's clock says ${says} — set the correct date and time, or it can stop connecting.`;
   }
+
+  // --- health: count crashes and freezes so the dashboard can name a sick TV
+  // Each list holds timestamps from the last 24 hours. A start this page did
+  // not plan (app relaunched after a crash, stick rebooted, power cut) counts
+  // as a restart; reloads the player asks for itself (updates, refreshes) don't.
+  const DAY = 86400000;
+  const pageStartedAt = Date.now();
+  function recent(key) {
+    try {
+      const list = JSON.parse(localStorage.getItem(key) || '[]');
+      const cut = Date.now() - DAY;
+      return Array.isArray(list) ? list.filter(t => t > cut && t <= Date.now() + 60000) : [];
+    } catch (_err) { return []; }
+  }
+  function bump(key) {
+    const list = recent(key);
+    list.push(Date.now());
+    try { localStorage.setItem(key, JSON.stringify(list.slice(-50))); } catch (_err) {}
+    return list;
+  }
+  let plannedStart = false;
+  try {
+    plannedStart = localStorage.getItem('parkcast.plannedReload') === '1';
+    localStorage.removeItem('parkcast.plannedReload');
+  } catch (_err) {}
+  if (!plannedStart) bump('parkcast.restarts');
+  function plannedReload() {
+    try { localStorage.setItem('parkcast.plannedReload', '1'); } catch (_err) {}
+    location.reload();
+  }
   let state = null;           // last state from server
   let playlist = [];          // [{id,label,url}]
   let playlistKey = '';
@@ -221,7 +251,7 @@
         // here too. The baseline is whatever the first push after page load
         // reports; only a CHANGE afterwards triggers the reload.
         if (msg.assetVersion) {
-          if (assetVersion && assetVersion !== msg.assetVersion) { location.reload(); return; }
+          if (assetVersion && assetVersion !== msg.assetVersion) { plannedReload(); return; }
           assetVersion = msg.assetVersion;
         }
         applyState(msg);
@@ -280,9 +310,66 @@
     else if (state && state.override) nowPlaying = 'Party takeover';
     else if (playlist[current]) nowPlaying = playlist[current].label;
     else nowPlaying = 'Idle';
-    ws.send(JSON.stringify({ type: 'status', nowPlaying, clockSkewMs, device: { ua: navigator.userAgent } }));
+    const health = {
+      restarts: recent('parkcast.restarts').length,
+      freezes: recent('parkcast.freezes').length,
+      uptimeMin: Math.round((Date.now() - pageStartedAt) / 60000)
+    };
+    ws.send(JSON.stringify({ type: 'status', nowPlaying, clockSkewMs, health, device: { ua: navigator.userAgent } }));
   }
   setInterval(reportStatus, 10000);
+
+  // --- self-healing --------------------------------------------------------
+  // A video whose picture stops moving (decoder hang, stalled download, an
+  // 'ended' event that never fires) used to sit frozen until someone power-
+  // cycled the TV. Now: frozen 30s -> skip ahead; frozen again soon after ->
+  // reload the player, which frees the decoder and memory. Reloads are
+  // spaced so a truly broken file can never make a TV reload-loop.
+  const FREEZE_MS = 30000;
+  const REFRESH_AFTER_MS = 12 * 3600000; // long-running WebViews leak memory
+  let lastVideoTime = -1;
+  let lastVideoEl = null;
+  let lastProgressAt = Date.now();
+  const playlistShowing = () => !idle.classList.contains('visible') &&
+    !off.classList.contains('visible') && !overrideEl.classList.contains('visible');
+  function canReload() {
+    let last = 0;
+    try { last = Number(localStorage.getItem('parkcast.lastHeal')) || 0; } catch (_err) {}
+    return Math.abs(Date.now() - last) > 30 * 60000;
+  }
+  function healReload() {
+    try { localStorage.setItem('parkcast.lastHeal', String(Date.now())); } catch (_err) {}
+    plannedReload();
+  }
+  function online() { return !!ws && ws.readyState === WebSocket.OPEN; }
+  setInterval(() => {
+    const uptime = Date.now() - pageStartedAt;
+    const partyOn = !!(state && state.override);
+    // Twice-a-day fresh start, done while the screen is off when possible,
+    // and only while the server is reachable to reload from.
+    if (uptime > REFRESH_AFTER_MS && online() && !partyOn &&
+        (off.classList.contains('visible') || uptime > REFRESH_AFTER_MS + 3600000)) {
+      plannedReload();
+      return;
+    }
+    const item = playlist[current];
+    const isVideo = !!item && item.type !== 'image' && item.type !== 'slide' && item.type !== 'comp';
+    if (document.hidden || !playlistShowing() || !isVideo) { lastProgressAt = Date.now(); lastVideoEl = null; return; }
+    const v = activeSlot.video;
+    if (v !== lastVideoEl || v.currentTime !== lastVideoTime) {
+      lastVideoEl = v;
+      lastVideoTime = v.currentTime;
+      lastProgressAt = Date.now();
+      return;
+    }
+    if (Date.now() - lastProgressAt < FREEZE_MS) return;
+    lastProgressAt = Date.now();
+    const freezes = bump('parkcast.freezes');
+    const recentFreezes = freezes.filter(t => t > Date.now() - 30 * 60000).length;
+    reportStatus();
+    if (recentFreezes >= 2 && canReload()) { healReload(); return; }
+    if (playlist.length > 1) next(); else startCurrent();
+  }, 5000);
 
   // --- rendering ---------------------------------------------------------
   function show(layer) {

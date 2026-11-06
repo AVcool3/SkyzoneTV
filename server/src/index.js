@@ -250,6 +250,7 @@ function dashboardSnapshot(venueId) {
       clockSkewMs: t.clockSkewMs || 0,
       pairedAt: t.pairedAt || t.createdAt || null,
       device: describeDevice(t.device?.ua),
+      health: t.health ? { restarts: t.health.restarts, freezes: t.health.freezes } : null,
       override: t.override ? { name: t.override.name, endsAt: t.override.endsAt } : null
     })),
     media: store.mediaOf(venue.id).map(mediaPublic),
@@ -2108,10 +2109,18 @@ wss.on('connection', (ws, req) => {
         ? Math.round(Math.max(-1e12, Math.min(1e12, msg.clockSkewMs)) / 60_000) * 60_000 : 0;
       const ua = typeof msg.device?.ua === 'string' ? msg.device.ua.slice(0, 300) : null;
       const deviceChanged = !!ua && tv.device?.ua !== ua;
-      const changed = tv.nowPlaying !== nowPlaying || (tv.clockSkewMs || 0) !== skew || deviceChanged;
+      // Crashes and frozen-picture recoveries the TV counted in the last 24h.
+      const count = (n, max) => Number.isFinite(n) ? Math.max(0, Math.min(max, Math.round(n))) : 0;
+      const health = msg.health && typeof msg.health === 'object'
+        ? { restarts: count(msg.health.restarts, 999), freezes: count(msg.health.freezes, 999),
+            uptimeMin: count(msg.health.uptimeMin, 1e6) }
+        : null;
+      const healthChanged = !!health && (tv.health?.restarts !== health.restarts || tv.health?.freezes !== health.freezes);
+      const changed = tv.nowPlaying !== nowPlaying || (tv.clockSkewMs || 0) !== skew || deviceChanged || healthChanged;
       tv.nowPlaying = nowPlaying;
       tv.clockSkewMs = skew;
       if (deviceChanged) tv.device = { ua };
+      if (health) tv.health = health;
       // Persist heartbeats at most once a minute per TV — every 10s status
       // from every screen was rewriting the whole db.json continuously.
       if (changed || !tv._seenSavedAt || Date.now() - tv._seenSavedAt > 60_000) {
