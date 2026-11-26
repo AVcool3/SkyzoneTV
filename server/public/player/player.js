@@ -335,7 +335,8 @@
     if (!window.isSecureContext) { cacheInfo = { on: false, reason: 'insecure', cached: 0, total: want.length }; return; }
     const ctl = navigator.serviceWorker.controller;
     if (!ctl) { cacheInfo = { on: false, reason: 'inactive', cached: 0, total: want.length }; return; }
-    try { ctl.postMessage({ type: 'stats' }); } catch (_err) {}
+    // The list also lets the cache resume downloading anything still missing.
+    try { ctl.postMessage({ type: 'stats', urls: want }); } catch (_err) {}
   }
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.addEventListener('message', e => {

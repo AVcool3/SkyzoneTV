@@ -7,6 +7,13 @@
  * stale; the player posts the urls its current state uses and anything
  * else is pruned.
  *
+ * One download per file, first play included: as soon as a screen gets
+ * its playlist, every file downloads in the background, one at a time,
+ * before it is needed. A request for a file that is still downloading
+ * waits for that one copy (briefly) instead of streaming a second copy
+ * alongside it — on TV sticks, whose browser cache is too small to merge
+ * the two, that used to cost every new file twice.
+ *
  * Shell cache: the player page itself is network-first with a cached
  * fallback, and the player keeps its last state in localStorage — so a TV
  * that reboots while the internet is down still comes up and plays.
@@ -52,36 +59,86 @@ self.addEventListener('fetch', event => {
   // Everything else (/api, /ws upgrades, dashboard) is untouched.
 });
 
-// ---- media: cache-first, fill in the background ---------------------------
-const downloading = new Map(); // pathname -> in-flight full download
+// ---- media: cache-first, one download per file -----------------------------
+const downloading = new Map(); // pathname -> in-flight full download (resolves true when stored)
+// How long a screen waits for a file's one copy before streaming instead.
+// Long enough for typical promo videos on decent Wi-Fi; short enough that a
+// huge file on a slow link never holds the screen up (the freeze watchdog
+// only acts after 30s).
+const WAIT_FOR_COPY_MS = 8000;
+const wait = ms => new Promise(r => setTimeout(r, ms));
 
 async function media(event, req, pathname) {
   try {
     const cache = await caches.open(MEDIA_CACHE);
     const hit = await cache.match(pathname);
     if (hit) return await rangeify(req, hit);
-    // Miss: stream from the network untouched so playback starts instantly,
-    // while one full copy downloads into the cache for every later loop.
-    // (First cycle costs roughly double; every cycle after costs nothing.)
-    if (!downloading.has(pathname)) {
-      const dl = fullDownload(cache, pathname);
-      downloading.set(pathname, dl);
-      event.waitUntil(dl); // keep the worker alive until the copy lands
+    // Miss: make sure exactly one full copy is downloading, then wait for
+    // it rather than pulling a second copy over the network.
+    const dl = startDownload(cache, pathname);
+    event.waitUntil(dl); // keep the worker alive until the copy lands
+    const landed = await Promise.race([dl, wait(WAIT_FOR_COPY_MS).then(() => false)]);
+    if (landed) {
+      const now = await cache.match(pathname);
+      if (now) return await rangeify(req, now);
     }
+    // Slow link or a very large file: stream it now so the screen isn't
+    // held up; the single stored copy keeps downloading for later loops.
     return await fetch(req);
   } catch (_err) {
     return fetch(req);
   }
 }
 
+function startDownload(cache, pathname) {
+  let dl = downloading.get(pathname);
+  if (!dl) {
+    dl = fullDownload(cache, pathname);
+    downloading.set(pathname, dl);
+  }
+  return dl;
+}
+
 async function fullDownload(cache, pathname) {
+  let stored = false;
   try {
     const res = await fetch(pathname); // no Range header -> full 200 body
     // Only a complete, healthy body is worth keeping; put() may also throw
     // on storage quota, which simply leaves this file streaming as before.
-    if (res.status === 200) await cache.put(pathname, res);
+    if (res.status === 200) { await cache.put(pathname, res); stored = true; }
   } catch (_err) {}
   downloading.delete(pathname);
+  return stored;
+}
+
+// ---- prefetch: download the screen's files before they're needed ----------
+// One file at a time, in playlist order, so a screen's own playback (and
+// the venue's Wi-Fi) is never swamped. Driven by the player's 'retain'
+// message on every state push and its once-a-minute 'stats' check, so an
+// interrupted prefetch (worker stopped, network drop) resumes on its own.
+let wanted = [];       // pathnames the current state references, in order
+let prefetching = false;
+function want(urls) {
+  const seen = new Set();
+  wanted = [];
+  for (const u of urls) {
+    let p;
+    try { p = new URL(u, self.location.origin).pathname; } catch (_err) { continue; }
+    if (p.startsWith('/media/') && !seen.has(p)) { seen.add(p); wanted.push(p); }
+  }
+}
+async function prefetch() {
+  if (prefetching) return;
+  prefetching = true;
+  try {
+    const cache = await caches.open(MEDIA_CACHE);
+    for (let i = 0; i < wanted.length; i++) {
+      const p = wanted[i];
+      if (await cache.match(p)) continue;
+      await startDownload(cache, p); // shares the copy a screen may be waiting on
+    }
+  } catch (_err) {}
+  prefetching = false;
 }
 
 // Video elements ask for byte ranges; answer them by slicing the cached
@@ -161,9 +218,15 @@ self.addEventListener('message', event => {
           if (!keep.has(new URL(req.url).pathname)) await cache.delete(req);
         }
       } catch (_err) {}
+      want(msg.urls);
+      await prefetch();
     })());
   }
   if (msg.type === 'stats' && event.source) {
+    if (Array.isArray(msg.urls) && msg.urls.length) {
+      want(msg.urls);
+      event.waitUntil(prefetch());
+    }
     event.waitUntil((async () => {
       try {
         const cache = await caches.open(MEDIA_CACHE);
