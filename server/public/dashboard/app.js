@@ -285,6 +285,14 @@
       let msg;
       try { msg = JSON.parse(e.data); } catch { return; }
       if (msg.type === 'state') { state = msg; render(); }
+      else if (msg.type === 'tv' && state && msg.tv) {
+        // One screen changed (heartbeat, online, cache): patch it in and
+        // redraw only the Screens list, so media previews aren't rebuilt
+        // (and re-downloaded) every time a TV moves to its next item.
+        const i = state.tvs.findIndex(t => t.id === msg.tv.id);
+        if (i >= 0) state.tvs[i] = msg.tv; else state.tvs.push(msg.tv);
+        renderScreensOnly();
+      }
     };
     ws.onclose = ev => {
       $('connDot').className = 'dot off';
@@ -332,6 +340,13 @@
       if (renderPending) { renderPending = false; setTimeout(render, 50); }
     }
   });
+
+  function renderScreensOnly() {
+    if (!state) return;
+    if (renderHeld || document.querySelector('.kebab .menu:not(.hidden)')) { renderPending = true; return; }
+    $('tvCount').textContent = state.tvs.length;
+    renderTvs();
+  }
 
   function render() {
     if (!state) return;
@@ -426,6 +441,16 @@
   const serverNow = () => Date.parse(state.serverTime) || Date.now();
   const isStale = tv => !tv.online && tv.lastSeen && serverNow() - Date.parse(tv.lastSeen) > DAY_MS;
   const clockWrong = tv => Math.abs(tv.clockSkewMs || 0) >= 5 * 60000;
+  // A TV whose on-device media cache isn't working downloads every video on
+  // every loop — the biggest bandwidth cost there is. (Plain-http LAN setups
+  // skip the cache on purpose; their traffic never leaves the building.)
+  const notCaching = tv => tv.online && !!tv.cache && tv.cache.on === false && tv.cache.reason !== 'insecure';
+  function cacheWarning(tv) {
+    const fix = tv.cache.reason === 'unsupported'
+      ? 'Its built-in browser is too old to store media. Update “Android System WebView” on the stick, or replace the stick.'
+      : 'Its media storage hasn’t started. Restart the ParkCast app on this TV; if this warning stays, tell ParkCast support.';
+    return `<div class="tv-warn">This TV isn’t storing its videos, so it downloads every video again on every loop — the biggest cost on your hosting bill. ${fix}</div>`;
+  }
   // Crashed/restarted or froze repeatedly in the last 24 hours (the TV counts).
   const unstable = tv => !!tv.health && (tv.health.restarts >= 4 || tv.health.freezes >= 3);
   function unstableWarning(tv) {
@@ -446,6 +471,7 @@
     const clock = paired.filter(clockWrong);
     const old = paired.filter(t => t.device && t.device.old);
     const shaky = paired.filter(unstable);
+    const uncached = paired.filter(notCaching);
     const parts = [`<b>${paired.length}</b> screen${paired.length === 1 ? '' : 's'}`,
       `<span class="h-ok">${online.length} online</span>`];
     if (offlineRecent.length) parts.push(`<span class="h-warn">${offlineRecent.length} offline</span>`);
@@ -453,7 +479,8 @@
     if (clock.length) parts.push(`<span class="h-bad">${clock.length} with a wrong clock</span>`);
     if (old.length) parts.push(`<span class="h-bad">${old.length} too old to stay connected</span>`);
     if (shaky.length) parts.push(`<span class="h-bad">${shaky.length} crashing or freezing</span>`);
-    const allGood = online.length === paired.length && !clock.length && !old.length && !shaky.length;
+    if (uncached.length) parts.push(`<span class="h-bad">${uncached.length} not storing media</span>`);
+    const allGood = online.length === paired.length && !clock.length && !old.length && !shaky.length && !uncached.length;
     box.className = 'tv-health' + (allGood ? ' good' : '');
     box.innerHTML = `<div class="h-line">${allGood ? '✓ Every screen is online and healthy · ' : ''}${parts.join(' · ')}</div>
       ${stale.length && isOwner() ? `<button class="btn tiny danger" id="removeStaleBtn">Remove ${stale.length} screen${stale.length === 1 ? '' : 's'} not seen for over a day…</button>` : ''}`;
@@ -526,6 +553,7 @@
         </div>
         ${tv.device && tv.device.old ? '<div class="tv-warn">This TV’s system is too old to trust the server’s security certificate, so it keeps dropping out. Replace the streaming stick with a current one.</div>' : ''}
         ${unstable(tv) ? unstableWarning(tv) : ''}
+        ${notCaching(tv) ? cacheWarning(tv) : ''}
         ${!tv.online && tv.lastSeen ? `<div class="tv-meta">Last seen ${esc(fmtTime(tv.lastSeen))}. If this TV was replaced or reinstalled, use <b>Replace TV</b> so it keeps this screen’s name, playlist and parties.</div>` : ''}
         ${Math.abs(tv.clockSkewMs || 0) >= 5 * 60000 ? `<div class="tv-warn">This TV thinks it's ${esc(fmtTime(new Date(Date.now() + tv.clockSkewMs).toISOString()))}. Fix its date and time (or let it reach an internet time server) — a wrong clock stops it connecting.</div>` : ''}
         <div class="tv-now">${tv.power === 'off' ? 'Screen off' :
@@ -536,7 +564,8 @@
         ${tv.override ? '<div class="tv-actions"><button class="btn tiny" data-act="clear">Stop takeover</button></div>' : ''}
         <button class="btn content-btn" data-act="media">Content…</button>
         <div class="tv-foot">
-          <span class="tv-meta">${esc([tv.device ? tv.device.label : '', tv.pairedAt ? `paired ${fmtTime(tv.pairedAt)}` : ''].filter(Boolean).join(' · '))}</span>
+          <span class="tv-meta">${esc([tv.device ? tv.device.label : '', tv.pairedAt ? `paired ${fmtTime(tv.pairedAt)}` : '',
+            tv.cache && tv.cache.on && tv.cache.total ? `${tv.cache.cached}/${tv.cache.total} files stored` : ''].filter(Boolean).join(' · '))}</span>
           <button class="btn tiny${tv.online ? '' : ' primary'}" data-act="replace" title="Put a different TV or reinstalled app in this screen's place">Replace TV…</button>
         </div>`;
 

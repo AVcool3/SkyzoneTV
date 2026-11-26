@@ -261,6 +261,7 @@
         // can resume this loop from the cache.
         try {
           const urls = (e.data.match(/"\/media\/[^"]+"/g) || []).map(s => s.slice(1, -1));
+          if (urls.length) wantedMedia = urls;
           if (urls.length && navigator.serviceWorker && navigator.serviceWorker.controller) {
             navigator.serviceWorker.controller.postMessage({ type: 'retain', urls });
           }
@@ -315,9 +316,37 @@
       freezes: recent('parkcast.freezes').length,
       uptimeMin: Math.round((Date.now() - pageStartedAt) / 60000)
     };
-    ws.send(JSON.stringify({ type: 'status', nowPlaying, clockSkewMs, health, device: { ua: navigator.userAgent } }));
+    ws.send(JSON.stringify({ type: 'status', nowPlaying, clockSkewMs, health, cache: cacheInfo, device: { ua: navigator.userAgent } }));
   }
   setInterval(reportStatus, 10000);
+
+  // --- is the media cache working here? ------------------------------------
+  // A TV that can't cache re-downloads every video on every loop, all day —
+  // by far the largest bandwidth cost. Report how many of this screen's
+  // files are stored on the device, so the dashboard can flag a TV that
+  // isn't caching. Checked once a minute, starting 30s after boot (the cache
+  // worker takes a moment to install on first launch).
+  let wantedMedia = [];
+  let cacheInfo = null;
+  const pathOf = u => { try { return new URL(u, location.href).pathname; } catch (_err) { return u; } };
+  function checkCache() {
+    const want = Array.from(new Set(wantedMedia.map(pathOf)));
+    if (!('serviceWorker' in navigator)) { cacheInfo = { on: false, reason: 'unsupported', cached: 0, total: want.length }; return; }
+    if (!window.isSecureContext) { cacheInfo = { on: false, reason: 'insecure', cached: 0, total: want.length }; return; }
+    const ctl = navigator.serviceWorker.controller;
+    if (!ctl) { cacheInfo = { on: false, reason: 'inactive', cached: 0, total: want.length }; return; }
+    try { ctl.postMessage({ type: 'stats' }); } catch (_err) {}
+  }
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', e => {
+      const d = e.data || {};
+      if (d.type !== 'stats' || !Array.isArray(d.cachedMedia)) return;
+      const have = new Set(d.cachedMedia);
+      const want = Array.from(new Set(wantedMedia.map(pathOf)));
+      cacheInfo = { on: true, cached: want.filter(p => have.has(p)).length, total: want.length };
+    });
+  }
+  setTimeout(() => { checkCache(); setInterval(checkCache, 60000); }, 30000);
 
   // --- self-healing --------------------------------------------------------
   // A video whose picture stops moving (decoder hang, stalled download, an

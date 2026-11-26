@@ -235,24 +235,31 @@ function describeDevice(ua) {
   };
 }
 
+// One screen as the dashboard sees it — used by full snapshots and by the
+// small per-screen updates that heartbeats send.
+function tvPublic(t) {
+  return {
+    id: t.id, name: t.name, power: t.power, online: tvOnline(t.id),
+    lastSeen: t.lastSeen, assignedMediaIds: t.assignedMediaIds,
+    playlistId: t.playlistId || null,
+    fit: t.fit || 'contain',
+    approved: t.approved !== false,
+    pairCode: t.approved === false ? t.pairCode : undefined,
+    nowPlaying: t.nowPlaying || null,
+    clockSkewMs: t.clockSkewMs || 0,
+    pairedAt: t.pairedAt || t.createdAt || null,
+    device: describeDevice(t.device?.ua),
+    health: t.health ? { restarts: t.health.restarts, freezes: t.health.freezes } : null,
+    cache: t.cache || null,
+    override: t.override ? { name: t.override.name, endsAt: t.override.endsAt } : null
+  };
+}
+
 function dashboardSnapshot(venueId) {
   const venue = store.venue(venueId) || store.venue(store.defaultVenueId());
   return {
     type: 'state',
-    tvs: store.tvsOf(venue.id).map(t => ({
-      id: t.id, name: t.name, power: t.power, online: tvOnline(t.id),
-      lastSeen: t.lastSeen, assignedMediaIds: t.assignedMediaIds,
-      playlistId: t.playlistId || null,
-      fit: t.fit || 'contain',
-      approved: t.approved !== false,
-      pairCode: t.approved === false ? t.pairCode : undefined,
-      nowPlaying: t.nowPlaying || null,
-      clockSkewMs: t.clockSkewMs || 0,
-      pairedAt: t.pairedAt || t.createdAt || null,
-      device: describeDevice(t.device?.ua),
-      health: t.health ? { restarts: t.health.restarts, freezes: t.health.freezes } : null,
-      override: t.override ? { name: t.override.name, endsAt: t.override.endsAt } : null
-    })),
+    tvs: store.tvsOf(venue.id).map(tvPublic),
     media: store.mediaOf(venue.id).map(mediaPublic),
     folders: store.foldersOf(venue.id),
     playlists: store.playlistsOf(venue.id).map(p => ({
@@ -366,13 +373,36 @@ function pushTv(tvId) {
 
 function pushVenueTvs(venueId) { for (const tv of store.tvsOf(venueId)) pushTv(tv.id); }
 
+// Full snapshots are coalesced: a burst of changes (Start day, a playlist
+// edit hitting 12 screens) becomes one push per venue within 250 ms.
+// No venueId = every venue.
+let pushAll = false, pushVenues = new Set(), pushTimer = null;
 function pushDashboards(venueId) {
+  if (venueId) pushVenues.add(venueId); else pushAll = true;
+  if (!pushTimer) pushTimer = setTimeout(flushDashboards, 250);
+}
+function flushDashboards() {
+  pushTimer = null;
+  const all = pushAll, venues = pushVenues;
+  pushAll = false; pushVenues = new Set();
   const cache = new Map();
   for (const ws of dashboardSockets) {
     if (ws.readyState !== ws.OPEN) continue;
-    if (venueId && ws.venueId !== venueId) continue;
+    if (!all && !venues.has(ws.venueId)) continue;
     if (!cache.has(ws.venueId)) cache.set(ws.venueId, JSON.stringify(dashboardSnapshot(ws.venueId)));
     ws.send(cache.get(ws.venueId));
+  }
+}
+// One screen changed (what it's playing, online, health, cache): send that
+// screen alone (~0.5 KB) instead of the venue's whole state (30 KB+). A busy
+// venue changes a screen every second or so, so this is most dashboard traffic.
+function pushTvStatus(tv) {
+  if (!tv || !tv.venueId) return;
+  let msg = null;
+  for (const ws of dashboardSockets) {
+    if (ws.readyState !== ws.OPEN || ws.venueId !== tv.venueId) continue;
+    if (!msg) msg = JSON.stringify({ type: 'tv', tv: tvPublic(tv) });
+    ws.send(msg);
   }
 }
 
@@ -2058,7 +2088,10 @@ const server = http.createServer(app);
 server.requestTimeout = 60 * 60_000;
 // 64KB is far beyond any legitimate player/dashboard message; the default
 // (100MB) would let any LAN device force huge disk writes and broadcasts.
-const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 64 * 1024 });
+// permessage-deflate: JSON snapshots and TV states shrink several-fold on
+// the wire (Render bills those bytes; its edge only compresses plain HTTP).
+const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 64 * 1024,
+  perMessageDeflate: { threshold: 1024 } });
 
 wss.on('connection', (ws, req) => {
   ws.isAlive = true;
@@ -2087,7 +2120,7 @@ wss.on('connection', (ws, req) => {
       tv.lastSeen = new Date().toISOString();
       store.save();
       ws.send(JSON.stringify(playerState(tv)));
-      pushDashboards();
+      pushTvStatus(tv);
     } else if (msg.type === 'hello' && msg.role === 'dashboard') {
       const session = sessionFor(msg.token);
       if (!session) { ws.close(4001, 'bad token'); return; }
@@ -2116,20 +2149,33 @@ wss.on('connection', (ws, req) => {
             uptimeMin: count(msg.health.uptimeMin, 1e6) }
         : null;
       const healthChanged = !!health && (tv.health?.restarts !== health.restarts || tv.health?.freezes !== health.freezes);
-      const changed = tv.nowPlaying !== nowPlaying || (tv.clockSkewMs || 0) !== skew || deviceChanged || healthChanged;
+      // Whether this TV's on-device media cache works. A TV that can't cache
+      // re-downloads every video on every loop — the single biggest
+      // bandwidth cost — so the dashboard must be able to see it.
+      const c = msg.cache && typeof msg.cache === 'object' ? msg.cache : null;
+      const cache = c ? {
+        on: c.on === true,
+        reason: ['unsupported', 'insecure', 'inactive'].includes(c.reason) ? c.reason : null,
+        cached: count(c.cached, 9999), total: count(c.total, 9999)
+      } : null;
+      const cacheChanged = !!cache && JSON.stringify(cache) !== JSON.stringify(tv.cache || null);
+      // nowPlaying changes every item, so it alone doesn't force a disk write.
+      const durable = (tv.clockSkewMs || 0) !== skew || deviceChanged || healthChanged || cacheChanged;
+      const changed = durable || tv.nowPlaying !== nowPlaying;
       tv.nowPlaying = nowPlaying;
       tv.clockSkewMs = skew;
       if (deviceChanged) tv.device = { ua };
       if (health) tv.health = health;
+      if (cache) tv.cache = cache;
       // Persist heartbeats at most once a minute per TV — every 10s status
       // from every screen was rewriting the whole db.json continuously.
-      if (changed || !tv._seenSavedAt || Date.now() - tv._seenSavedAt > 60_000) {
+      if (durable || !tv._seenSavedAt || Date.now() - tv._seenSavedAt > 60_000) {
         tv._seenSavedAt = Date.now();
         store.save();
       }
-      // Only re-broadcast when something visible changed — heartbeats alone
-      // shouldn't cause 12 TVs × every 10s of dashboard re-renders.
-      if (changed) pushDashboards();
+      // Only re-broadcast when something visible changed, and then only
+      // this screen — not the venue's whole state.
+      if (changed) pushTvStatus(tv);
     }
   });
 
@@ -2137,7 +2183,7 @@ wss.on('connection', (ws, req) => {
     if (ws.role === 'player' && ws.tvId) {
       const set = playerSockets.get(ws.tvId);
       if (set) { set.delete(ws); if (set.size === 0) playerSockets.delete(ws.tvId); }
-      pushDashboards();
+      pushTvStatus(store.tv(ws.tvId));
     } else if (ws.role === 'dashboard') {
       dashboardSockets.delete(ws);
     }
